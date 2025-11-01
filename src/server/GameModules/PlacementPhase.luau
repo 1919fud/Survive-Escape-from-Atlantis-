@@ -122,6 +122,76 @@ function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
 	table.insert(playerData.explorers, explorer)
 	playerData.explorersPlaced += 1
 
+	-- СОЗДАЕМ ВИЗУАЛЬНОГО ИССЛЕДОВАТЕЛЯ ДЛЯ ВСЕХ ИГРОКОВ
+	function PlacementPhase:createExplorerVisual(player, treasureValue, q, r)
+		local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+		-- Ищем шаблон исследователя
+		local explorerTemplate = ReplicatedStorage:FindFirstChild("Explorer")
+		if not explorerTemplate then
+			warn("❌ Не найден шаблон Explorer в ReplicatedStorage")
+			return
+		end
+
+		-- Ищем тайл по координатам
+		local map = workspace:WaitForChild("Map")
+		local targetTile = nil
+
+		-- Ищем тайл с нужными координатами
+		for _, obj in ipairs(map:GetDescendants()) do
+			if obj:IsA("MeshPart") then
+				local tileQ = obj:GetAttribute("Q") or obj:GetAttribute("q")
+				local tileR = obj:GetAttribute("R") or obj:GetAttribute("r")
+
+				if tileQ == q and tileR == r then
+					targetTile = obj
+					break
+				end
+			end
+		end
+
+		if not targetTile then
+			warn(
+				"❌ Не найден тайл для размещения исследователя: Q=",
+				q,
+				"R=",
+				r
+			)
+			return
+		end
+
+		-- Создаем исследователя
+		local explorer = explorerTemplate:Clone()
+		explorer.Name = "Explorer_" .. player.Name .. "_" .. treasureValue
+
+		-- Позиционируем над тайлом
+		local yOffset = explorer.Size.Y / 2 + targetTile.Size.Y / 2 + 0.5
+		explorer.CFrame = targetTile.CFrame + Vector3.new(0, yOffset, 0)
+
+		-- Устанавливаем цвет в зависимости от игрока
+		local playerColor = self:getPlayerColor(player)
+		explorer.BrickColor = playerColor
+
+		-- Добавляем атрибуты
+		explorer:SetAttribute("Player", player.Name)
+		explorer:SetAttribute("TreasureValue", treasureValue)
+		explorer:SetAttribute("Q", q)
+		explorer:SetAttribute("R", r)
+		explorer:SetAttribute("IsExplorer", true)
+
+		-- Помещаем в workspace
+		explorer.Parent = workspace
+
+		print(
+			"👤 Создан визуал исследователя для игрока",
+			player.Name,
+			"на Q=",
+			q,
+			"R=",
+			r
+		)
+	end
+
 	-- Уведомляем всех игроков
 	self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
 		type = "ExplorerPlaced",

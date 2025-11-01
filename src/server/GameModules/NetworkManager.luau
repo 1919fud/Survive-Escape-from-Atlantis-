@@ -5,10 +5,8 @@ NetworkManager.__index = NetworkManager
 function NetworkManager.new()
 	local self = setmetatable({}, NetworkManager)
 
-	-- Создаем RemoteEvents в ReplicatedStorage
 	local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-	-- Папка для сетевых событий
 	local eventsFolder = Instance.new("Folder")
 	eventsFolder.Name = "GameEvents"
 	eventsFolder.Parent = ReplicatedStorage
@@ -26,7 +24,7 @@ function NetworkManager.new()
 	self.gameStartEvent.Name = "GameStartEvent"
 	self.gameStartEvent.Parent = eventsFolder
 
-	-- ДОБАВЛЕНО: Событие для размещения исследователей
+	-- Событие для размещения исследователей
 	self.placeExplorerEvent = Instance.new("RemoteEvent")
 	self.placeExplorerEvent.Name = "PlaceExplorerEvent"
 	self.placeExplorerEvent.Parent = eventsFolder
@@ -47,7 +45,6 @@ function NetworkManager:getGameStartEvent()
 	return self.gameStartEvent
 end
 
--- ДОБАВЛЕНО: Геттер для размещения исследователей
 function NetworkManager:getPlaceExplorerEvent()
 	return self.placeExplorerEvent
 end
