@@ -13,24 +13,23 @@ function NetworkManager.new()
 	eventsFolder.Name = "GameEvents"
 	eventsFolder.Parent = ReplicatedStorage
 
-	-- Игрок нажал "Готов"
+	-- Существующие события
 	self.playerReadyEvent = Instance.new("RemoteEvent")
 	self.playerReadyEvent.Name = "PlayerReadyEvent"
 	self.playerReadyEvent.Parent = eventsFolder
 
-	-- Обновление статуса готовности для всех игроков
 	self.updateReadyStatusEvent = Instance.new("RemoteEvent")
 	self.updateReadyStatusEvent.Name = "UpdateReadyStatusEvent"
 	self.updateReadyStatusEvent.Parent = eventsFolder
 
-	-- Начало игры
 	self.gameStartEvent = Instance.new("RemoteEvent")
 	self.gameStartEvent.Name = "GameStartEvent"
 	self.gameStartEvent.Parent = eventsFolder
 
-	self.updatePlayerColorsEvent = Instance.new("RemoteEvent")
-	self.updatePlayerColorsEvent.Name = "UpdatePlayerColorsEvent"
-	self.updatePlayerColorsEvent.Parent = eventsFolder
+	-- ДОБАВЛЕНО: Событие для размещения исследователей
+	self.placeExplorerEvent = Instance.new("RemoteEvent")
+	self.placeExplorerEvent.Name = "PlaceExplorerEvent"
+	self.placeExplorerEvent.Parent = eventsFolder
 
 	return self
 end
@@ -48,8 +47,9 @@ function NetworkManager:getGameStartEvent()
 	return self.gameStartEvent
 end
 
-function NetworkManager:getUpdatePlayerColorsEvent()
-	return self.updatePlayerColorsEvent
+-- ДОБАВЛЕНО: Геттер для размещения исследователей
+function NetworkManager:getPlaceExplorerEvent()
+	return self.placeExplorerEvent
 end
 
 return NetworkManager

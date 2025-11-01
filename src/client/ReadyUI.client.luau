@@ -28,7 +28,22 @@ local timerLabel = mainFrame:WaitForChild("TimerLabel")
 screenGui.Enabled = true
 local isPlayerReady = false
 
--- В ReadyUI.lua обновить функцию updateStatusDisplay:
+-- Функция для получения цвета игрока по имени
+local function getPlayerColor(playerName)
+	-- Простая хэш-функция для генерации цвета из имени
+	local hash = 0
+	for i = 1, #playerName do
+		hash = (hash * 31 + string.byte(playerName, i)) % 360
+	end
+
+	-- Используем разные иконки в зависимости от хэша
+	local colorIcons = { "🔴", "🔵", "🟢", "🟡", "🟣", "🟠", "⚫", "⚪" }
+	local iconIndex = (hash % #colorIcons) + 1
+
+	return colorIcons[iconIndex]
+end
+
+-- Функция обновления статуса
 local function updateStatusDisplay(statusData)
 	local readyCount = 0
 	local totalCount = 0
@@ -36,22 +51,9 @@ local function updateStatusDisplay(statusData)
 
 	for playerName, data in pairs(statusData) do
 		totalCount += 1
-		local colorIcon = "⚪" -- Белый по умолчанию
 
-		-- Добавляем цветные иконки в зависимости от цвета игрока
-		if data.color then
-			if data.color.R > 0.8 and data.color.G < 0.3 and data.color.B < 0.3 then
-				colorIcon = "🔴" -- Красный
-			elseif data.color.R < 0.3 and data.color.G < 0.3 and data.color.B > 0.8 then
-				colorIcon = "🔵" -- Синий
-			elseif data.color.R < 0.3 and data.color.G > 0.8 and data.color.B < 0.3 then
-				colorIcon = "🟢" -- Зеленый
-			elseif data.color.R > 0.8 and data.color.G > 0.8 and data.color.B < 0.3 then
-				colorIcon = "🟡" -- Желтый
-			elseif data.color.R > 0.7 and data.color.G < 0.5 and data.color.B > 0.7 then
-				colorIcon = "🟣" -- Фиолетовый
-			end
-		end
+		-- Используем функцию для получения цвета
+		local colorIcon = getPlayerColor(playerName)
 
 		if data.isReady then
 			readyCount += 1
@@ -63,26 +65,7 @@ local function updateStatusDisplay(statusData)
 
 	statusLabel.Text = string.format("Готові: %d/%d\n\n%s", readyCount, totalCount, statusText)
 end
---[[-- Функция обновления статуса
-local function updateStatusDisplay(statusData)
-	local readyCount = 0
-	local totalCount = 0
-	local statusText = ""
 
-	for playerName, data in pairs(statusData) do
-		totalCount += 1
-		if data.isReady then
-			readyCount += 1
-			statusText ..= "🟢 " .. (data.displayName or playerName) .. " - ГОТОВ\n"
-		else
-			statusText ..= "🔴 " .. (data.displayName or playerName) .. " - НЕ ГОТОВ\n"
-		end
-	end
-
-	statusLabel.Text = string.format("Готові: %d/%d\n\n%s", readyCount, totalCount, statusText)
-end
-]]
---
 -- Обработчик нажатия кнопки
 readyButton.MouseButton1Click:Connect(function()
 	isPlayerReady = not isPlayerReady
@@ -106,7 +89,14 @@ UpdateReadyStatusEvent.OnClientEvent:Connect(function(statusData)
 end)
 
 -- Обработчик начала игры
-GameStartEvent.OnClientEvent:Connect(function(countdownTime)
+GameStartEvent.OnClientEvent:Connect(function(data)
+	-- Извлекаем countdown из таблицы данных
+	local countdownTime = data.countdown or data -- поддержка старого формата
+
+	if type(countdownTime) == "table" then
+		countdownTime = data.countdown or 3 -- значение по умолчанию
+	end
+
 	timerLabel.Visible = true
 
 	-- Обратный отсчет
@@ -116,7 +106,6 @@ GameStartEvent.OnClientEvent:Connect(function(countdownTime)
 	end
 
 	timerLabel.Text = "ГРА ПОЧИНАЄТЬСЯ!"
-	wait(1)
 
 	-- Скрываем интерфейс
 	screenGui.Enabled = false

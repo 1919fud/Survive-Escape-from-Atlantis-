@@ -6,7 +6,8 @@ local GameModules = Server:WaitForChild("GameModules")
 
 local MapManager = require(GameModules:WaitForChild("MapManager"))
 local NetworkManager = require(GameModules:WaitForChild("NetworkManager"))
-local PlayerColorManager = require(GameModules:WaitForChild("PlayerColorManager"))
+local TurnManager = require(GameModules:WaitForChild("TurnManager"))
+local PlacementPhase = require(GameModules:WaitForChild("PlacementPhase"))
 
 local AtlantisGame = {}
 AtlantisGame.__index = AtlantisGame
@@ -16,11 +17,14 @@ function AtlantisGame.new()
 
 	self.mapManager = MapManager.new()
 	self.networkManager = NetworkManager.new()
-	self.colorManager = PlayerColorManager.new() -- ДОБАВИЛ ЭТО
 	self.isGameActive = false
 	self.players = {}
 	self.readyPlayers = {}
 	self.waitingForReady = true
+
+	-- ДОБАВЛЕНО: Система размещения
+	self.placementPhase = PlacementPhase.new()
+	self.gameState = "ready" -- ready, placement, main_game
 
 	print("✅ AtlantisGame инициализирован")
 
@@ -33,15 +37,13 @@ function AtlantisGame:start()
 	self:initializeMap()
 	self:setupReadySystem()
 	self:setupPlayerHandlers()
-	-- УБРАЛ вызов несуществующего метода
+	self:setupExplorerPlacement()
 end
 
 function AtlantisGame:initializeMap()
 	print("🗺️ Инициализация карты...")
-
 	self.mapManager:discoverTiles()
 	self.mapManager:generateLandTiles()
-
 	print("✅ Карта успешно инициализирована!")
 end
 
@@ -68,16 +70,27 @@ function AtlantisGame:setupPlayerHandlers()
 	print("✅ Обработчики игроков настроены")
 end
 
+-- ДОБАВЛЕНО: Система размещения исследователей
+function AtlantisGame:setupExplorerPlacement()
+	print("🎯 Настройка системы размещения исследователей...")
+
+	local PlaceExplorerEvent = self.networkManager:getPlaceExplorerEvent()
+
+	PlaceExplorerEvent.OnServerEvent:Connect(function(player, treasureValue, q, r)
+		local success = self.placementPhase:handlePlaceExplorer(player, treasureValue, q, r)
+		return success
+	end)
+
+	print("✅ Система размещения исследователей настроена")
+end
+
 function AtlantisGame:onPlayerJoined(player)
 	print("👤 Игрок присоединился:", player.Name)
 
-	-- ВРЕМЕННО УБРАЛ вызов colorManager пока не создан модуль
-	-- local playerColor = self.colorManager:getRandomColorForPlayer(player)
-
-	-- Сохраняем данные игрока БЕЗ цвета пока
 	self.players[player] = {
 		name = player.Name,
-		-- color = playerColor, -- ВРЕМЕННО ЗАКОММЕНТИРОВАЛ
+		explorersPlaced = 0,
+		maxExplorers = 10,
 		explorers = {},
 	}
 
@@ -88,19 +101,6 @@ function AtlantisGame:onPlayerJoined(player)
 	self:updateReadyStatusForAll()
 
 	print("👥 Всего игроков:", self:getPlayerCount())
-end
-
-function AtlantisGame:onPlayerLeft(player)
-	print("👤 Игрок вышел:", player.Name)
-
-	-- ВРЕМЕННО УБРАЛ пока нет colorManager
-	-- self.colorManager:releasePlayerColor(player)
-
-	self.players[player] = nil
-	self.readyPlayers[player] = nil
-
-	-- Обновляем статус для всех
-	self:updateReadyStatusForAll()
 end
 
 function AtlantisGame:onPlayerReadyChanged(player, isReady)
@@ -119,6 +119,85 @@ function AtlantisGame:onPlayerReadyChanged(player, isReady)
 	self:checkGameStartCondition()
 end
 
+-- ДОБАВЛЕНО: Обработка размещения исследователя
+function AtlantisGame:onPlayerPlaceExplorer(player, treasureValue, q, r)
+	if not self.isGameActive then
+		warn("❌ Игра еще не началась!")
+		return false
+	end
+
+	local playerData = self.players[player]
+	if not playerData then
+		return false
+	end
+
+	-- Проверяем лимит исследователей
+	if playerData.explorersPlaced >= playerData.maxExplorers then
+		warn("❌ Игрок", player.Name, "уже разместил всех исследователей!")
+		return false
+	end
+
+	-- Проверяем валидность сокровищ
+	if treasureValue < 1 or treasureValue > 5 then
+		warn("❌ Неверное значение сокровищ:", treasureValue)
+		return false
+	end
+
+	-- Проверяем тайл через MapManager
+	local tile = self.mapManager:getTileAtPosition(q, r)
+	if not tile then
+		warn("❌ Тайл не найден: Q=", q, "R=", r)
+		return false
+	end
+
+	print(
+		"🎯 Игрок",
+		player.Name,
+		"размещает исследователя с сокровищами",
+		treasureValue,
+		"на Q=",
+		q,
+		"R=",
+		r
+	)
+
+	-- Создаем исследователя
+	local explorerId = #playerData.explorers + 1
+	local explorer = {
+		id = explorerId,
+		player = player,
+		treasureValue = treasureValue,
+		q = q,
+		r = r,
+		position = tile.meshPart.Position,
+	}
+
+	table.insert(playerData.explorers, explorer)
+	playerData.explorersPlaced += 1
+
+	-- Уведомляем всех игроков
+	self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
+		type = "ExplorerPlaced",
+		playerName = player.Name,
+		explorerCount = playerData.explorersPlaced,
+		maxExplorers = playerData.maxExplorers,
+		q = q,
+		r = r,
+		treasureValue = treasureValue,
+	})
+
+	print(
+		"✅ Игрок",
+		player.Name,
+		"разместил исследователя",
+		playerData.explorersPlaced,
+		"/",
+		playerData.maxExplorers
+	)
+
+	return true
+end
+
 function AtlantisGame:updateReadyStatusForAll()
 	-- Собираем информацию о статусе всех игроков
 	local statusData = {}
@@ -127,6 +206,8 @@ function AtlantisGame:updateReadyStatusForAll()
 		statusData[player.Name] = {
 			isReady = self.readyPlayers[player] == true,
 			displayName = player.DisplayName,
+			explorersPlaced = self.players[player].explorersPlaced,
+			maxExplorers = self.players[player].maxExplorers,
 		}
 	end
 
@@ -145,7 +226,10 @@ function AtlantisGame:checkGameStartCondition()
 		print("🚀 Все игроки готовы! Начинаем игру через 3 секунды...")
 
 		-- Отправляем уведомление о скором начале
-		self.networkManager:getGameStartEvent():FireAllClients(3)
+		self.networkManager:getGameStartEvent():FireAllClients({
+			countdown = 3,
+			message = "Гра починається!",
+		})
 
 		-- Запускаем таймер начала игры
 		task.delay(3, function()
@@ -178,8 +262,12 @@ function AtlantisGame:startMainGame()
 	print("🎯 НАЧАЛО ОСНОВНОЙ ИГРЫ!")
 	self.waitingForReady = false
 	self.isGameActive = true
+	self.gameState = "placement"
 
-	print("🎮 Основная игра начата!")
+	-- Уведомляем всех о начале фазы размещения
+	self.placementPhase:start(self.players, self.networkManager)
+
+	print("🎮 Основная игра начата! Фаза размещения исследователей.")
 end
 
 -- Создание и запуск игры
