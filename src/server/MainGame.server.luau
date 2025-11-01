@@ -1,10 +1,12 @@
 -- MainGame.lua (Server Script в Server/)
 local ServerScriptService = game:GetService("ServerScriptService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Server = ServerScriptService:WaitForChild("Server")
 local GameModules = Server:WaitForChild("GameModules")
 
 local MapManager = require(GameModules:WaitForChild("MapManager"))
 local NetworkManager = require(GameModules:WaitForChild("NetworkManager"))
+local PlayerColorManager = require(GameModules:WaitForChild("PlayerColorManager"))
 
 local AtlantisGame = {}
 AtlantisGame.__index = AtlantisGame
@@ -14,6 +16,7 @@ function AtlantisGame.new()
 
 	self.mapManager = MapManager.new()
 	self.networkManager = NetworkManager.new()
+	self.colorManager = PlayerColorManager.new() -- ДОБАВИЛ ЭТО
 	self.isGameActive = false
 	self.players = {}
 	self.readyPlayers = {}
@@ -27,27 +30,24 @@ end
 function AtlantisGame:start()
 	print("🎮 Запуск игры Atlantis...")
 
-	-- 1. Инициализация карты
 	self:initializeMap()
-
-	-- 2. Настройка системы готовности
 	self:setupReadySystem()
-
-	-- 3. Настройка подключения игроков
 	self:setupPlayerHandlers()
+	-- УБРАЛ вызов несуществующего метода
 end
 
 function AtlantisGame:initializeMap()
 	print("🗺️ Инициализация карты...")
+
 	self.mapManager:discoverTiles()
 	self.mapManager:generateLandTiles()
+
 	print("✅ Карта успешно инициализирована!")
 end
 
 function AtlantisGame:setupReadySystem()
 	print("🎮 Настройка системы готовности...")
 
-	-- Обработчик когда игрок нажимает "Готов"
 	self.networkManager:getPlayerReadyEvent().OnServerEvent:Connect(function(player, isReady)
 		self:onPlayerReadyChanged(player, isReady)
 	end)
@@ -71,8 +71,14 @@ end
 function AtlantisGame:onPlayerJoined(player)
 	print("👤 Игрок присоединился:", player.Name)
 
+	-- ВРЕМЕННО УБРАЛ вызов colorManager пока не создан модуль
+	-- local playerColor = self.colorManager:getRandomColorForPlayer(player)
+
+	-- Сохраняем данные игрока БЕЗ цвета пока
 	self.players[player] = {
 		name = player.Name,
+		-- color = playerColor, -- ВРЕМЕННО ЗАКОММЕНТИРОВАЛ
+		explorers = {},
 	}
 
 	-- При подключении игрок не готов
@@ -82,6 +88,19 @@ function AtlantisGame:onPlayerJoined(player)
 	self:updateReadyStatusForAll()
 
 	print("👥 Всего игроков:", self:getPlayerCount())
+end
+
+function AtlantisGame:onPlayerLeft(player)
+	print("👤 Игрок вышел:", player.Name)
+
+	-- ВРЕМЕННО УБРАЛ пока нет colorManager
+	-- self.colorManager:releasePlayerColor(player)
+
+	self.players[player] = nil
+	self.readyPlayers[player] = nil
+
+	-- Обновляем статус для всех
+	self:updateReadyStatusForAll()
 end
 
 function AtlantisGame:onPlayerReadyChanged(player, isReady)
@@ -160,7 +179,6 @@ function AtlantisGame:startMainGame()
 	self.waitingForReady = false
 	self.isGameActive = true
 
-	-- Здесь будет основная игровая логика
 	print("🎮 Основная игра начата!")
 end
 
