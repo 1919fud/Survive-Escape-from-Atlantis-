@@ -1,9 +1,7 @@
 -- MainGame.lua (Server Script в Server/)
 local ServerScriptService = game:GetService("ServerScriptService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Server = ServerScriptService:WaitForChild("Server")
 local GameModules = Server:WaitForChild("GameModules")
-
 local MapManager = require(GameModules:WaitForChild("MapManager"))
 local NetworkManager = require(GameModules:WaitForChild("NetworkManager"))
 local TurnManager = require(GameModules:WaitForChild("TurnManager"))
@@ -206,8 +204,8 @@ function AtlantisGame:updateReadyStatusForAll()
 		statusData[player.Name] = {
 			isReady = self.readyPlayers[player] == true,
 			displayName = player.DisplayName,
-			explorersPlaced = self.players[player].explorersPlaced,
-			maxExplorers = self.players[player].maxExplorers,
+			explorersPlaced = self.players[player].explorersPlaced or 0,
+			maxExplorers = self.players[player].maxExplorers or 10,
 		}
 	end
 

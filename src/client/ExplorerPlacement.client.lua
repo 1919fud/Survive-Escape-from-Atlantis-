@@ -14,6 +14,14 @@ local PlaceExplorerEvent = GameEvents:WaitForChild("PlaceExplorerEvent")
 local UpdateReadyStatusEvent = GameEvents:WaitForChild("UpdateReadyStatusEvent")
 local GameStartEvent = GameEvents:WaitForChild("GameStartEvent")
 
+local treasureLimits = {
+	[1] = { current = 0, max = 2, available = true },
+	[2] = { current = 0, max = 2, available = true },
+	[3] = { current = 0, max = 2, available = true },
+	[4] = { current = 0, max = 2, available = true },
+	[5] = { current = 0, max = 2, available = true },
+}
+
 -- Функция для получения визуального цвета игрока
 local function getPlayerVisualColor(playerName)
 	local hash = 0
@@ -91,8 +99,6 @@ end
 
 -- Создание визуала исследователя
 local function createExplorerVisual(playerName, treasureValue, q, r)
-	local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
 	-- Ищем шаблон исследователя
 	local explorerTemplate = ReplicatedStorage:FindFirstChild("Explorer")
 	if not explorerTemplate then
@@ -323,24 +329,31 @@ local function updateQueueDisplay(turnInfo, playersData)
 	local queueText = ""
 	local currentIndex = turnInfo.currentPlayerIndex or 1
 
-	for i, player in ipairs(turnInfo.playersOrder or {}) do
-		local playerName = player.Name
+	for i, playerObj in ipairs(turnInfo.playersOrder or {}) do
+		local playerName = playerObj.Name
 		local playerData = currentPlayersData[playerName] or {}
 		local explorersCount = playerData.explorersPlaced or 0
-		local maxExplorers = playerData.maxExplorers or 10
+		local playerMaxExplorers = playerData.maxExplorers or 10
 
 		local colorIcon = getPlayerColor(playerName)
 		local status = ""
 
 		if i == currentIndex then
 			status = "🎯 ЗАРАЗ ХОДИТЬ"
-		elseif explorersCount >= maxExplorers then
+		elseif explorersCount >= playerMaxExplorers then
 			status = "✅ ЗАВЕРШЕНО"
 		else
 			status = "⏳ ЧЕКАЄ"
 		end
 
-		queueText ..= string.format("%s %s: %d/%d - %s\n", colorIcon, playerName, explorersCount, maxExplorers, status)
+		queueText ..= string.format(
+			"%s %s: %d/%d - %s\n",
+			colorIcon,
+			playerName,
+			explorersCount,
+			playerMaxExplorers,
+			status
+		) -- ИСПОЛЬЗОВАТЬ НОВОЕ ИМЯ
 	end
 
 	queueList.Text = queueText
@@ -350,10 +363,18 @@ end
 -- Подсветка кнопок
 local function updateButtonsHighlight()
 	for value, button in pairs(treasureButtons) do
+		local limitInfo = treasureLimits[value]
+
 		if value == selectedTreasureValue then
 			button.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+		elseif not limitInfo.available then
+			-- Недоступно (лимит достигнут)
+			button.BackgroundColor3 = Color3.fromRGB(100, 0, 0)
+			button.Text = value .. " ✗"
 		else
+			-- Доступно
 			button.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+			button.Text = value .. " (" .. limitInfo.current .. "/" .. limitInfo.max .. ")"
 		end
 	end
 end
@@ -364,16 +385,23 @@ local function updateUIStatus()
 		titleLabel.BackgroundColor3 = Color3.fromRGB(0, 100, 0)
 		turnInfoLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
 		statusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+
+		-- Включаем кнопки только если они доступны
+		for value, button in pairs(treasureButtons) do
+			local limitInfo = treasureLimits[value]
+			button.Visible = true
+			button.Active = limitInfo.available
+		end
 	else
 		titleLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 		turnInfoLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 		statusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-	end
 
-	-- Включаем/выключаем кнопки в зависимости от хода
-	for _, button in pairs(treasureButtons) do
-		button.Visible = isMyTurn
-		button.Active = isMyTurn
+		-- Выключаем все кнопки
+		for _, button in pairs(treasureButtons) do
+			button.Visible = false
+			button.Active = false
+		end
 	end
 end
 
@@ -381,6 +409,13 @@ end
 for value, button in pairs(treasureButtons) do
 	button.MouseButton1Click:Connect(function()
 		if not isMyTurn then
+			return
+		end
+
+		-- Проверяем доступность значения сокровищ
+		local limitInfo = treasureLimits[value]
+		if not limitInfo.available then
+			statusLabel.Text = "❌ Ліміт для цього значення скарбів досягнуто!"
 			return
 		end
 
@@ -418,11 +453,9 @@ local function highlightTile(tile, highlight)
 		end
 	end
 
-	if tile then
-		if highlight then
-			tile.BrickColor = BrickColor.new("Bright green")
-			currentHighlightedTile = tile
-		end
+	if tile and highlight then
+		tile.BrickColor = BrickColor.new("Bright green")
+		currentHighlightedTile = tile
 	end
 end
 
@@ -519,18 +552,26 @@ end)
 
 UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
 	if data.type == "ExplorerPlaced" then
-		-- Обновляем прогресс
-		explorersPlaced = data.explorerCount or explorersPlaced
-		progressLabel.Text = "Розміщено: " .. explorersPlaced .. "/" .. maxExplorers
+		-- ОБНОВЛЯЕМ ТОЛЬКО СВОЙ ПРОГРЕСС, если это наш исследователь
+		if data.playerName == player.Name then
+			explorersPlaced = data.explorerCount or explorersPlaced
+			progressLabel.Text = "Розміщено: " .. explorersPlaced .. "/" .. maxExplorers
 
-		if explorersPlaced >= maxExplorers then
-			statusLabel.Text = "Всі дослідники розміщені!"
-			isMyTurn = false
-			updateUIStatus()
+			if explorersPlaced >= maxExplorers then
+				statusLabel.Text = "Всі дослідники розміщені!"
+				isMyTurn = false
+				updateUIStatus()
+			end
 		end
 
-		-- Создаем визуал исследователя
+		-- Создаем визуал исследователя (для всех игроков)
 		createExplorerVisual(data.playerName, data.treasureValue, data.q, data.r)
+
+		-- Обновляем информацию о лимитах если она пришла
+		if data.treasureLimits then
+			treasureLimits = data.treasureLimits
+			updateButtonsHighlight()
+		end
 	elseif data.type == "PlayerTurn" then
 		-- Обновляем информацию об очереди
 		local currentPlayerName = data.currentPlayer or ""
@@ -542,17 +583,25 @@ UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
 
 		if isMyTurn then
 			turnInfoLabel.Text = "🎯 ВАШ ХІД! Оберіть дослідника"
+			-- ОБНОВЛЯЕМ СВОЙ ПРОГРЕСС ТОЛЬКО КОГДА НАШ ХОД
+			local myData = playersData[player.Name] or {}
+			explorersPlaced = myData.explorersPlaced or 0
+			progressLabel.Text = "Розміщено: " .. explorersPlaced .. "/" .. maxExplorers
 		else
 			turnInfoLabel.Text = "Зараз ходить: " .. currentPlayerName
+			-- СБРАСЫВАЕМ СЧЕТЧИК ЕСЛИ НЕ НАШ ХОД
+			explorersPlaced = 0
+			progressLabel.Text = "Розміщено: 0/" .. maxExplorers
 		end
 
 		updateUIStatus()
 		updateQueueDisplay(turnInfo, playersData)
 
-		-- Обновляем наш прогресс
-		local myData = playersData[player.Name] or {}
-		explorersPlaced = myData.explorersPlaced or 0
-		progressLabel.Text = "Розміщено: " .. explorersPlaced .. "/" .. maxExplorers
+		-- Обновляем информацию о лимитах если она пришла
+		if data.treasureLimits then
+			treasureLimits = data.treasureLimits
+			updateButtonsHighlight()
+		end
 	end
 end)
 
@@ -565,5 +614,3 @@ Players.PlayerRemoving:Connect(function(leftPlayer)
 		end
 	end
 end)
-
-print("✅ Система размещения исследователей загружена")

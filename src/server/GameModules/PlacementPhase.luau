@@ -8,8 +8,30 @@ function PlacementPhase.new()
 	self.isActive = false
 	self.turnManager = nil
 	self.playersData = {}
-
+	self.treasureLimits = {
+		[1] = 2,
+		[2] = 2,
+		[3] = 2,
+		[4] = 2,
+		[5] = 2,
+	}
 	return self
+end
+
+local function canPlaceTreasureValue(playersData, treasureValue, treasureLimits)
+	local currentCount = 0
+
+	-- Считаем сколько уже размещено исследователей с этим значением сокровищ
+	for _, playerData in pairs(playersData) do
+		for _, explorer in ipairs(playerData.explorers) do
+			if explorer.treasureValue == treasureValue then
+				currentCount += 1
+			end
+		end
+	end
+
+	-- Проверяем не превышен ли лимит (ИСПРАВЛЕНО: treasureValue вместо treasureLimits[treasureValue])
+	return currentCount < treasureLimits[treasureValue]
 end
 
 -- Начать фазу размещения
@@ -55,7 +77,8 @@ function PlacementPhase:startPlayerTurn()
 		type = "PlayerTurn",
 		currentPlayer = currentPlayer.Name,
 		turnInfo = turnInfo,
-		playersData = self:getPlayersDataForClients(),
+		playersData = self:getPlayersDataForClients(), -- Отправляем данные ВСЕХ игроков
+		treasureLimits = self:getTreasureLimitsStatus(),
 	})
 
 	-- Активируем UI для текущего игрока
@@ -65,7 +88,6 @@ function PlacementPhase:startPlayerTurn()
 		isYourTurn = true,
 	})
 end
-
 -- Обработка размещения исследователя
 function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
 	if not self.isActive then
@@ -98,6 +120,14 @@ function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
 		return false
 	end
 
+	if not canPlaceTreasureValue(self.playersData, treasureValue, self.treasureLimits) then
+		warn(
+			"❌ Достигнут лимит для исследователей с сокровищами:",
+			treasureValue
+		)
+		return false
+	end
+
 	print(
 		"🎯 Игрок",
 		player.Name,
@@ -122,86 +152,17 @@ function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
 	table.insert(playerData.explorers, explorer)
 	playerData.explorersPlaced += 1
 
-	-- СОЗДАЕМ ВИЗУАЛЬНОГО ИССЛЕДОВАТЕЛЯ ДЛЯ ВСЕХ ИГРОКОВ
-	function PlacementPhase:createExplorerVisual(player, treasureValue, q, r)
-		local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
-		-- Ищем шаблон исследователя
-		local explorerTemplate = ReplicatedStorage:FindFirstChild("Explorer")
-		if not explorerTemplate then
-			warn("❌ Не найден шаблон Explorer в ReplicatedStorage")
-			return
-		end
-
-		-- Ищем тайл по координатам
-		local map = workspace:WaitForChild("Map")
-		local targetTile = nil
-
-		-- Ищем тайл с нужными координатами
-		for _, obj in ipairs(map:GetDescendants()) do
-			if obj:IsA("MeshPart") then
-				local tileQ = obj:GetAttribute("Q") or obj:GetAttribute("q")
-				local tileR = obj:GetAttribute("R") or obj:GetAttribute("r")
-
-				if tileQ == q and tileR == r then
-					targetTile = obj
-					break
-				end
-			end
-		end
-
-		if not targetTile then
-			warn(
-				"❌ Не найден тайл для размещения исследователя: Q=",
-				q,
-				"R=",
-				r
-			)
-			return
-		end
-
-		-- Создаем исследователя
-		local explorer = explorerTemplate:Clone()
-		explorer.Name = "Explorer_" .. player.Name .. "_" .. treasureValue
-
-		-- Позиционируем над тайлом
-		local yOffset = explorer.Size.Y / 2 + targetTile.Size.Y / 2 + 0.5
-		explorer.CFrame = targetTile.CFrame + Vector3.new(0, yOffset, 0)
-
-		-- Устанавливаем цвет в зависимости от игрока
-		local playerColor = self:getPlayerColor(player)
-		explorer.BrickColor = playerColor
-
-		-- Добавляем атрибуты
-		explorer:SetAttribute("Player", player.Name)
-		explorer:SetAttribute("TreasureValue", treasureValue)
-		explorer:SetAttribute("Q", q)
-		explorer:SetAttribute("R", r)
-		explorer:SetAttribute("IsExplorer", true)
-
-		-- Помещаем в workspace
-		explorer.Parent = workspace
-
-		print(
-			"👤 Создан визуал исследователя для игрока",
-			player.Name,
-			"на Q=",
-			q,
-			"R=",
-			r
-		)
-	end
-
 	-- Уведомляем всех игроков
 	self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
 		type = "ExplorerPlaced",
 		playerName = player.Name,
-		explorerCount = playerData.explorersPlaced,
+		explorerCount = playerData.explorersPlaced, -- ТОЛЬКО для текущего игрока
 		maxExplorers = playerData.maxExplorers,
 		q = q,
 		r = r,
 		treasureValue = treasureValue,
 		playersData = self:getPlayersDataForClients(),
+		treasureLimits = self:getTreasureLimitsStatus(),
 	})
 
 	print(
@@ -210,7 +171,9 @@ function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
 		"разместил исследователя",
 		playerData.explorersPlaced,
 		"/",
-		playerData.maxExplorers
+		playerData.maxExplorers,
+		"со сокровищами:",
+		treasureValue
 	)
 
 	-- Проверяем завершение хода
@@ -225,6 +188,70 @@ function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
 	return true
 end
 
+function PlacementPhase:createExplorerVisual(player, treasureValue, q, r)
+	local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+	-- Ищем шаблон исследователя
+	local explorerTemplate = ReplicatedStorage:FindFirstChild("Explorer")
+	if not explorerTemplate then
+		warn("❌ Не найден шаблон Explorer в ReplicatedStorage")
+		return
+	end
+
+	-- Ищем тайл по координатам
+	local map = workspace:WaitForChild("Map")
+	local targetTile = nil
+
+	-- Ищем тайл с нужными координатами
+	for _, obj in ipairs(map:GetDescendants()) do
+		if obj:IsA("MeshPart") then
+			local tileQ = obj:GetAttribute("Q") or obj:GetAttribute("q")
+			local tileR = obj:GetAttribute("R") or obj:GetAttribute("r")
+
+			if tileQ == q and tileR == r then
+				targetTile = obj
+				break
+			end
+		end
+	end
+
+	if not targetTile then
+		warn("❌ Не найден тайл для размещения исследователя: Q=", q, "R=", r)
+		return
+	end
+
+	-- Создаем исследователя
+	local explorer = explorerTemplate:Clone()
+	explorer.Name = "Explorer_" .. player.Name .. "_" .. treasureValue
+
+	-- Позиционируем над тайлом
+	local yOffset = explorer.Size.Y / 2 + targetTile.Size.Y / 2 + 0.5
+	explorer.CFrame = targetTile.CFrame + Vector3.new(0, yOffset, 0)
+
+	-- Устанавливаем цвет в зависимости от игрока
+	local playerColor = self:getPlayerColor(player)
+	explorer.BrickColor = playerColor
+
+	-- Добавляем атрибуты
+	explorer:SetAttribute("Player", player.Name)
+	explorer:SetAttribute("TreasureValue", treasureValue)
+	explorer:SetAttribute("Q", q)
+	explorer:SetAttribute("R", r)
+	explorer:SetAttribute("IsExplorer", true)
+
+	-- Помещаем в workspace
+	explorer.Parent = workspace
+
+	print(
+		"👤 Создан визуал исследователя для игрока",
+		player.Name,
+		"на Q=",
+		q,
+		"R=",
+		r
+	)
+end
+
 -- Продолжить ход того же игрока
 function PlacementPhase:continuePlayerTurn(player)
 	-- Просто обновляем UI для текущего игрока
@@ -236,6 +263,32 @@ function PlacementPhase:continuePlayerTurn(player)
 	})
 end
 
+function PlacementPhase:getTreasureLimitsStatus()
+	local status = {}
+
+	for treasureValue = 1, 5 do
+		local currentCount = 0
+		local maxCount = self.treasureLimits[treasureValue]
+
+		-- Считаем текущее количество
+		for _, playerData in pairs(self.playersData) do
+			for _, explorer in ipairs(playerData.explorers) do
+				if explorer.treasureValue == treasureValue then
+					currentCount += 1
+				end
+			end
+		end
+
+		status[treasureValue] = {
+			current = currentCount,
+			max = maxCount,
+			available = currentCount < maxCount,
+		}
+	end
+
+	return status
+end
+
 -- Переход к следующему игроку
 function PlacementPhase:moveToNextPlayer()
 	-- Проверяем, все ли игроки завершили размещение
@@ -245,7 +298,7 @@ function PlacementPhase:moveToNextPlayer()
 	end
 
 	-- Переходим к следующему игроку
-	local nextPlayer = self.turnManager:nextPlayer()
+	self.turnManager:nextPlayer()
 
 	-- Уведомляем предыдущего игрока о завершении хода
 	local currentPlayer = self.turnManager:getCurrentPlayer()

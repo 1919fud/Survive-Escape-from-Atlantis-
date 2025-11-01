@@ -44,22 +44,39 @@ local function getPlayerColor(playerName)
 end
 
 -- Функция обновления статуса
+-- ReadyUI.lua - исправленная функция updateStatusDisplay
 local function updateStatusDisplay(statusData)
+	-- Проверяем тип данных - если это не таблица, выходим
+	if type(statusData) ~= "table" then
+		print("⚠️ Получены некорректные данные статуса, тип:", type(statusData))
+		return
+	end
+
 	local readyCount = 0
 	local totalCount = 0
 	local statusText = ""
 
 	for playerName, data in pairs(statusData) do
+		-- Дополнительная проверка: если data не таблица, пропускаем
+		if type(data) ~= "table" then
+			print("⚠️ Некорректные данные для игрока", playerName, "тип:", type(data))
+			continue -- пропускаем эту итерацию
+		end
+
 		totalCount += 1
 
 		-- Используем функцию для получения цвета
 		local colorIcon = getPlayerColor(playerName)
 
-		if data.isReady then
+		-- Безопасное получение данных
+		local isReady = data.isReady or false
+		local displayName = data.displayName or playerName
+
+		if isReady then
 			readyCount += 1
-			statusText ..= colorIcon .. " " .. (data.displayName or playerName) .. " - ГОТОВ\n"
+			statusText ..= colorIcon .. " " .. displayName .. " - ГОТОВ\n"
 		else
-			statusText ..= colorIcon .. " " .. (data.displayName or playerName) .. " - НЕ ГОТОВ\n"
+			statusText ..= colorIcon .. " " .. displayName .. " - НЕ ГОТОВ\n"
 		end
 	end
 
