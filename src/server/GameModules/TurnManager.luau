@@ -1,24 +1,22 @@
--- TurnManager.lua (ModuleScript)
+-- TurnManager.lua
 local TurnManager = {}
 TurnManager.__index = TurnManager
 
 function TurnManager.new()
 	local self = setmetatable({}, TurnManager)
-
 	self.playersOrder = {}
 	self.currentPlayerIndex = 1
 	self.currentRound = 1
 	self.maxExplorersPerPlayer = 10
-
+	self.placementCompleted = {} -- Трекаємо хто завершив розміщення
 	return self
 end
 
--- Инициализация очереди игроков
 function TurnManager:initialize(players)
-	-- Создаем случайный порядок игроков
 	local playerList = {}
 	for player, _ in pairs(players) do
 		table.insert(playerList, player)
+		self.placementCompleted[player] = false -- Спочатку всі не завершили
 	end
 
 	-- Перемешиваем игроков
@@ -33,31 +31,45 @@ function TurnManager:initialize(players)
 
 	print("🎯 Очередь игроков установлена:")
 	for i, player in ipairs(self.playersOrder) do
-		print("   " .. i .. ". " .. player.Name)
+		print(" " .. i .. ". " .. player.Name)
 	end
-end
-
--- Получить текущего игрока
-function TurnManager:getCurrentPlayer()
-	return self.playersOrder[self.currentPlayerIndex]
 end
 
 -- Переход к следующему игроку
 function TurnManager:nextPlayer()
-	self.currentPlayerIndex += 1
+	-- НЕ помечаємо поточного гравця як завершившего
+	-- Він може ще ставити дослідників у наступних колах
 
-	-- Если дошли до конца очереди, начинаем новый раунд
-	if self.currentPlayerIndex > #self.playersOrder then
-		self.currentPlayerIndex = 1
-		self.currentRound += 1
-		print("🔄 Начинается раунд размещения:", self.currentRound)
-	end
+	-- Шукаємо наступного гравця який ще не завершив
+	local startIndex = self.currentPlayerIndex
+	local attempts = 0
+
+	repeat
+		self.currentPlayerIndex += 1
+		attempts += 1
+
+		-- Якщо дошли до кінця списку, починаємо з початку
+		if self.currentPlayerIndex > #self.playersOrder then
+			self.currentPlayerIndex = 1
+			self.currentRound += 1
+			print("🔄 Раунд:", self.currentRound)
+		end
+
+		-- Якщо перевірили всіх гравців, виходимо
+		if attempts >= #self.playersOrder then
+			break
+		end
+	until not self.placementCompleted[self:getCurrentPlayer()]
 
 	return self:getCurrentPlayer()
 end
 
--- Проверить, все ли игроки завершили размещение
+-- Перевіряємо, чи всі гравці завершили розміщення
 function TurnManager:allPlayersFinished(playersData)
+	if not playersData then
+		return false
+	end
+
 	for _, player in ipairs(self.playersOrder) do
 		local playerData = playersData[player]
 		if playerData and playerData.explorersPlaced < self.maxExplorersPerPlayer then
@@ -67,7 +79,10 @@ function TurnManager:allPlayersFinished(playersData)
 	return true
 end
 
--- Получить информацию об очереди
+function TurnManager:getCurrentPlayer()
+	return self.playersOrder[self.currentPlayerIndex]
+end
+
 function TurnManager:getTurnInfo()
 	return {
 		currentPlayer = self:getCurrentPlayer(),
@@ -75,6 +90,7 @@ function TurnManager:getTurnInfo()
 		totalPlayers = #self.playersOrder,
 		currentRound = self.currentRound,
 		playersOrder = self.playersOrder,
+		placementCompleted = self.placementCompleted,
 	}
 end
 

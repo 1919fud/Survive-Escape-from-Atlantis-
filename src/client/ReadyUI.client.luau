@@ -46,9 +46,14 @@ end
 -- Функция обновления статуса
 -- ReadyUI.lua - исправленная функция updateStatusDisplay
 local function updateStatusDisplay(statusData)
-	-- Проверяем тип данных - если это не таблица, выходим
+	-- Перевіряємо тип даних - якщо це не таблиця, виходимо
 	if type(statusData) ~= "table" then
-		print("⚠️ Получены некорректные данные статуса, тип:", type(statusData))
+		return
+	end
+
+	-- ДОДАЄМО ПЕРЕВІРКУ: якщо це дані про розміщення дослідників, ігноруємо
+	if statusData.type then
+		-- Це повідомлення про розміщення дослідника, а не статус готовності
 		return
 	end
 
@@ -57,30 +62,27 @@ local function updateStatusDisplay(statusData)
 	local statusText = ""
 
 	for playerName, data in pairs(statusData) do
-		-- Дополнительная проверка: если data не таблица, пропускаем
-		if type(data) ~= "table" then
-			print("⚠️ Некорректные данные для игрока", playerName, "тип:", type(data))
-			continue -- пропускаем эту итерацию
-		end
+		-- Безпечна перевірка типів
+		if type(data) == "table" and data.isReady ~= nil then
+			totalCount += 1
 
-		totalCount += 1
+			-- Використовуємо функцію для отримання кольору
+			local colorIcon = getPlayerColor(playerName)
 
-		-- Используем функцию для получения цвета
-		local colorIcon = getPlayerColor(playerName)
-
-		-- Безопасное получение данных
-		local isReady = data.isReady or false
-		local displayName = data.displayName or playerName
-
-		if isReady then
-			readyCount += 1
-			statusText ..= colorIcon .. " " .. displayName .. " - ГОТОВ\n"
-		else
-			statusText ..= colorIcon .. " " .. displayName .. " - НЕ ГОТОВ\n"
+			if data.isReady then
+				readyCount += 1
+				statusText ..= colorIcon .. " " .. (data.displayName or playerName) .. " - ГОТОВ\n"
+			else
+				statusText ..= colorIcon .. " " .. (data.displayName or playerName) .. " - НЕ ГОТОВ\n"
+			end
 		end
 	end
 
-	statusLabel.Text = string.format("Готові: %d/%d\n\n%s", readyCount, totalCount, statusText)
+	if totalCount > 0 then
+		statusLabel.Text = string.format("Готові: %d/%d\n\n%s", readyCount, totalCount, statusText)
+	else
+		statusLabel.Text = "Очікування гравців..."
+	end
 end
 
 -- Обработчик нажатия кнопки

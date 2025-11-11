@@ -4,11 +4,11 @@ PlacementPhase.__index = PlacementPhase
 
 function PlacementPhase.new()
 	local self = setmetatable({}, PlacementPhase)
-
+	--treasureLimits
 	self.isActive = false
 	self.turnManager = nil
 	self.playersData = {}
-	self.treasureLimits = {
+	self.playerTreasureLimits = {
 		[1] = 2,
 		[2] = 2,
 		[3] = 2,
@@ -18,11 +18,16 @@ function PlacementPhase.new()
 	return self
 end
 
-local function canPlaceTreasureValue(playersData, treasureValue, treasureLimits)
+local function canPlayerPlaceTreasureValue(playerData, treasureValue, playerLimits)
+	if not playerData then
+		warn("❌ playerData is nil in canPlayerPlaceTreasureValue")
+		return false
+	end
+
 	local currentCount = 0
 
-	-- Считаем сколько уже размещено исследователей с этим значением сокровищ
-	for _, playerData in pairs(playersData) do
+	-- Рахуємо скільки цей гравець вже поставив з цим значенням скарбів
+	if playerData.explorers then
 		for _, explorer in ipairs(playerData.explorers) do
 			if explorer.treasureValue == treasureValue then
 				currentCount += 1
@@ -30,8 +35,8 @@ local function canPlaceTreasureValue(playersData, treasureValue, treasureLimits)
 		end
 	end
 
-	-- Проверяем не превышен ли лимит (ИСПРАВЛЕНО: treasureValue вместо treasureLimits[treasureValue])
-	return currentCount < treasureLimits[treasureValue]
+	local limit = playerLimits[treasureValue] or 0
+	return currentCount < limit
 end
 
 -- Начать фазу размещения
@@ -77,16 +82,28 @@ function PlacementPhase:startPlayerTurn()
 		type = "PlayerTurn",
 		currentPlayer = currentPlayer.Name,
 		turnInfo = turnInfo,
-		playersData = self:getPlayersDataForClients(), -- Отправляем данные ВСЕХ игроков
-		treasureLimits = self:getTreasureLimitsStatus(),
+		playersData = self:getPlayersDataForClients(),
+		playerTreasureLimits = self:getTreasureLimitsStatus(currentPlayer), -- Ліміти поточного гравця
 	})
 
 	-- Активируем UI для текущего игрока
 	self.networkManager:getGameStartEvent():FireClient(currentPlayer, {
 		phase = "player_turn",
-		message = "Ваш хід! Оберіть дослідника",
+		message = "Ваш хід! Розмістіть всіх дослідників",
 		isYourTurn = true,
 	})
+
+	-- Відправляємо іншим гравцям очікування
+	for _, player in ipairs(turnInfo.playersOrder) do
+		if player ~= currentPlayer then
+			self.networkManager:getGameStartEvent():FireClient(player, {
+				phase = "waiting_turn",
+				message = "Чекайте поки "
+					.. currentPlayer.Name
+					.. " завершить розміщення",
+			})
+		end
+	end
 end
 -- Обработка размещения исследователя
 function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
@@ -108,7 +125,12 @@ function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
 		return false
 	end
 
-	-- Проверяем лимит исследователей
+	if not canPlayerPlaceTreasureValue(playerData, treasureValue, self.playerTreasureLimits) then
+		warn("❌ Гравець", player.Name, "досяг ліміту для скарбів:", treasureValue)
+		return false
+	end
+
+	-- Проверяем лимит исследователей для игрока
 	if playerData.explorersPlaced >= playerData.maxExplorers then
 		warn("❌ Игрок уже разместил всех исследователей")
 		return false
@@ -120,7 +142,8 @@ function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
 		return false
 	end
 
-	if not canPlaceTreasureValue(self.playersData, treasureValue, self.treasureLimits) then
+	-- Проверяем лимит для этого значения сокровищ
+	if not canPlayerPlaceTreasureValue(self.playersData, treasureValue, self.playerTreasureLimits) then
 		warn(
 			"❌ Достигнут лимит для исследователей с сокровищами:",
 			treasureValue
@@ -148,7 +171,6 @@ function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
 		q = q,
 		r = r,
 	}
-
 	table.insert(playerData.explorers, explorer)
 	playerData.explorersPlaced += 1
 
@@ -156,13 +178,13 @@ function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
 	self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
 		type = "ExplorerPlaced",
 		playerName = player.Name,
-		explorerCount = playerData.explorersPlaced, -- ТОЛЬКО для текущего игрока
+		explorerCount = playerData.explorersPlaced,
 		maxExplorers = playerData.maxExplorers,
 		q = q,
 		r = r,
 		treasureValue = treasureValue,
 		playersData = self:getPlayersDataForClients(),
-		treasureLimits = self:getTreasureLimitsStatus(),
+		playerTreasureLimits = self:getTreasureLimitsStatus(currentPlayer), -- Індивідуальні ліміти
 	})
 
 	print(
@@ -171,19 +193,12 @@ function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
 		"разместил исследователя",
 		playerData.explorersPlaced,
 		"/",
-		playerData.maxExplorers,
-		"со сокровищами:",
-		treasureValue
+		playerData.maxExplorers
 	)
 
-	-- Проверяем завершение хода
-	if playerData.explorersPlaced >= playerData.maxExplorers then
-		-- Игрок разместил всех исследователей
-		self:moveToNextPlayer()
-	else
-		-- Игрок продолжает ход
-		self:continuePlayerTurn(player)
-	end
+	-- ВИДАЛЕНО: проверка завершения хода игрока
+	-- ДОДАНО: всегда переходим к следующему игроку после размещения
+	self:moveToNextPlayer()
 
 	return true
 end
@@ -263,15 +278,26 @@ function PlacementPhase:continuePlayerTurn(player)
 	})
 end
 
-function PlacementPhase:getTreasureLimitsStatus()
+function PlacementPhase:getTreasureLimitsStatus(targetPlayer)
 	local status = {}
+	local playerData = self.playersData[targetPlayer]
+
+	if not playerData then
+		for treasureValue = 1, 5 do
+			status[treasureValue] = {
+				current = 0,
+				max = self.playerTreasureLimits[treasureValue],
+				available = true,
+			}
+		end
+		return status
+	end
 
 	for treasureValue = 1, 5 do
 		local currentCount = 0
-		local maxCount = self.treasureLimits[treasureValue]
 
-		-- Считаем текущее количество
-		for _, playerData in pairs(self.playersData) do
+		-- Рахуємо скільки цей гравець вже поставив
+		if playerData.explorers then
 			for _, explorer in ipairs(playerData.explorers) do
 				if explorer.treasureValue == treasureValue then
 					currentCount += 1
@@ -279,6 +305,7 @@ function PlacementPhase:getTreasureLimitsStatus()
 			end
 		end
 
+		local maxCount = self.playerTreasureLimits[treasureValue]
 		status[treasureValue] = {
 			current = currentCount,
 			max = maxCount,
@@ -298,19 +325,15 @@ function PlacementPhase:moveToNextPlayer()
 	end
 
 	-- Переходим к следующему игроку
-	self.turnManager:nextPlayer()
+	local nextPlayer = self.turnManager:nextPlayer()
 
 	-- Уведомляем предыдущего игрока о завершении хода
-	local currentPlayer = self.turnManager:getCurrentPlayer()
-	if currentPlayer then
-		self.networkManager:getGameStartEvent():FireClient(currentPlayer, {
-			phase = "waiting_turn",
-			message = "Чекайте свій хід",
-		})
-	end
+	local previousPlayer = self.turnManager:getCurrentPlayer()
 
 	-- Начинаем ход следующего игрока
 	self:startPlayerTurn()
+
+	print("🔄 Переход к игроку:", nextPlayer.Name)
 end
 
 -- Завершить фазу размещения
