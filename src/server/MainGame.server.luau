@@ -220,7 +220,7 @@ function AtlantisGame:checkGameStartCondition()
 	print(string.format("📊 Готовы: %d/%d игроков", readyPlayers, totalPlayers))
 
 	-- Если все игроки готовы и их хотя бы 2
-	if readyPlayers >= 2 and readyPlayers == totalPlayers then
+	if readyPlayers >= 1 and readyPlayers == totalPlayers then
 		print("🚀 Все игроки готовы! Начинаем игру через 3 секунды...")
 
 		-- Отправляем уведомление о скором начале

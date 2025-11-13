@@ -186,116 +186,42 @@ local function createExplorerVisual(playerName, treasureValue, q, r)
 end
 
 -- Создаем UI для выбора исследователей
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "ExplorerPlacementUI"
+local screenGui = PlayerGui:WaitForChild("ExplorerPlacementUI")
 screenGui.Enabled = false
-screenGui.Parent = PlayerGui
-
 -- Основной фрейм
-local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 400, 0, 250)
-mainFrame.Position = UDim2.new(0.5, -200, 0.1, 0)
-mainFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-mainFrame.BorderSizePixel = 0
-mainFrame.Parent = screenGui
+local mainFrame = screenGui:WaitForChild("MainFrame")
 
 -- Заголовок
-local titleLabel = Instance.new("TextLabel")
-titleLabel.Size = UDim2.new(1, 0, 0, 40)
-titleLabel.Position = UDim2.new(0, 0, 0, 0)
-titleLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-titleLabel.Text = "ВИБІР ДОСЛІДНИКА"
-titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-titleLabel.TextScaled = true
-titleLabel.Font = Enum.Font.GothamBold
-titleLabel.Parent = mainFrame
+local titleLabel = mainFrame:WaitForChild("TitleLabel")
 
 -- Информация о текущем ходе
-local turnInfoLabel = Instance.new("TextLabel")
-turnInfoLabel.Size = UDim2.new(1, -20, 0, 30)
-turnInfoLabel.Position = UDim2.new(0, 10, 0, 45)
-turnInfoLabel.BackgroundTransparency = 1
-turnInfoLabel.Text = "Зараз ходить: ..."
-turnInfoLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-turnInfoLabel.TextScaled = true
-turnInfoLabel.Font = Enum.Font.Gotham
-turnInfoLabel.Parent = mainFrame
+local turnInfoLabel = mainFrame:WaitForChild("TurnInfoLabel")
 
 -- Кнопки сокровищ
-local treasuresFrame = Instance.new("Frame")
-treasuresFrame.Size = UDim2.new(1, -20, 0, 60)
-treasuresFrame.Position = UDim2.new(0, 10, 0, 80)
-treasuresFrame.BackgroundTransparency = 1
-treasuresFrame.Parent = mainFrame
+local treasuresFrame = screenGui:WaitForChild("TreasuresFrame")
 
 local treasureButtons = {}
 local treasureValues = { 1, 2, 3, 4, 5 }
 
 for i, value in ipairs(treasureValues) do
-	local button = Instance.new("TextButton")
-	button.Size = UDim2.new(0, 50, 0, 50)
-	button.Position = UDim2.new(0, (i - 1) * 60, 0, 0)
-	button.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-	button.Text = tostring(value)
-	button.TextColor3 = Color3.fromRGB(255, 255, 255)
-	button.TextScaled = true
-	button.Font = Enum.Font.GothamBold
-	button.Parent = treasuresFrame
-
+	local buttonName = "TreasureButton" .. value
+	local button = treasuresFrame:WaitForChild(buttonName)
+	button.Position = UDim2.new(0, 0, 0, (i - 1) * 60)
 	treasureButtons[value] = button
 end
 
 -- Статус
-local statusLabel = Instance.new("TextLabel")
-statusLabel.Size = UDim2.new(1, -20, 0, 40)
-statusLabel.Position = UDim2.new(0, 10, 0, 150)
-statusLabel.BackgroundTransparency = 1
-statusLabel.Text = "Оберіть значення скарбів (1-5)"
-statusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-statusLabel.TextScaled = true
-statusLabel.Font = Enum.Font.Gotham
-statusLabel.Parent = mainFrame
+local statusLabel = mainFrame:WaitForChild("StatusLabel")
 
 -- Прогресс
-local progressLabel = Instance.new("TextLabel")
-progressLabel.Size = UDim2.new(1, -20, 0, 30)
-progressLabel.Position = UDim2.new(0, 10, 0, 190)
-progressLabel.BackgroundTransparency = 1
-progressLabel.Text = "Розміщено: 0/10"
-progressLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-progressLabel.TextScaled = true
-progressLabel.Font = Enum.Font.Gotham
-progressLabel.Parent = mainFrame
+local progressLabel = mainFrame:WaitForChild("ProgressLabel")
 
 -- Панель очереди игроков
-local queueFrame = Instance.new("Frame")
-queueFrame.Size = UDim2.new(0, 250, 0, 150)
-queueFrame.Position = UDim2.new(1, 10, 0, 0)
-queueFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-queueFrame.BorderSizePixel = 0
-queueFrame.Visible = false
-queueFrame.Parent = screenGui
+local queueFrame = screenGui:WaitForChild("QueueFrame")
 
-local queueTitle = Instance.new("TextLabel")
-queueTitle.Size = UDim2.new(1, 0, 0, 30)
-queueTitle.Position = UDim2.new(0, 0, 0, 0)
-queueTitle.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-queueTitle.Text = "ЧЕРГА ГРАВЦІВ"
-queueTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
-queueTitle.TextScaled = true
-queueTitle.Font = Enum.Font.GothamBold
-queueTitle.Parent = queueFrame
+local queueTitle = queueFrame:WaitForChild("QueueTitle")
 
-local queueList = Instance.new("TextLabel")
-queueList.Size = UDim2.new(1, -10, 1, -40)
-queueList.Position = UDim2.new(0, 5, 0, 35)
-queueList.BackgroundTransparency = 1
-queueList.Text = "Завантаження..."
-queueList.TextColor3 = Color3.fromRGB(255, 255, 255)
-queueList.TextXAlignment = Enum.TextXAlignment.Left
-queueList.TextYAlignment = Enum.TextYAlignment.Top
-queueList.TextWrapped = true
-queueList.Parent = queueFrame
+local queueList = queueFrame:WaitForChild("QueueList")
 
 -- Переменные
 local selectedTreasureValue = nil
@@ -370,7 +296,7 @@ local function updateButtonsHighlight()
 		elseif not limitInfo or not limitInfo.available then
 			-- Недоступно (ліміт гравця досягнутий)
 			button.BackgroundColor3 = Color3.fromRGB(100, 0, 0)
-			button.Text = value .. " ✗ (" .. (limitInfo and limitInfo.current or 0) .. "/2)"
+			button.Text = value .. " X (" .. (limitInfo and limitInfo.current or 0) .. "/2)"
 		else
 			-- Доступно
 			button.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
@@ -382,6 +308,7 @@ end
 -- Обновление статуса UI
 local function updateUIStatus()
 	if isMyTurn then
+		statusLabel.Text = "Оберіть значення скарбів (1-5)"
 		titleLabel.BackgroundColor3 = Color3.fromRGB(0, 100, 0)
 		turnInfoLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
 		statusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -596,8 +523,9 @@ UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
 		else
 			turnInfoLabel.Text = "Зараз ходить: " .. currentPlayerName
 			-- СКИДАЄМО ЛІЧИЛЬНИК І ВИМИКАЄМО КНОПКИ
-			explorersPlaced = 0
-			progressLabel.Text = "Розміщено: 0/" .. maxExplorers
+			local myData = playersData[player.Name] or {}
+			explorersPlaced = myData.explorersPlaced or 0
+			progressLabel.Text = "Розміщено: " .. explorersPlaced .. "/" .. maxExplorers
 
 			-- ВИМИКАЄМО КНОПКИ ДЛЯ ІНШИХ ГРАВЦІВ
 			for _, button in pairs(treasureButtons) do
