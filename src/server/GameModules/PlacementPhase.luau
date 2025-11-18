@@ -15,6 +15,10 @@ function PlacementPhase.new()
 		[4] = 2,
 		[5] = 2,
 	}
+	self.phase = "explorers"
+	self.boatTemplate = nil
+	self.boatsPlaced = {}
+	self.boatsPerPlayer = 2
 	return self
 end
 
@@ -346,9 +350,381 @@ function PlacementPhase:endPhase()
 		phase = "placement_complete",
 		message = "Усі дослідники розміщені! Гра починається...",
 	})
+	self:startBoatsPhase()
 
-	-- Здесь будет переход к основной игре
-	-- self:startMainGame()
+	--self:startMainGame()
+end
+
+function PlacementPhase:startBoatsPhase()
+	self.phase = "boats"
+	self.isActive = true
+
+	-- Знаходимо шаблон човна
+	local ReplicatedStorage = game:GetService("ReplicatedStorage")
+	self.boatTemplate = ReplicatedStorage:FindFirstChild("Boat")
+
+	if not self.boatTemplate then
+		warn("❌ Не найден шаблон Boat в ReplicatedStorage")
+		return
+	end
+
+	self.boatsPlaced = {}
+	for player, _ in pairs(self.playersData) do
+		self.boatsPlaced[player] = 0
+	end
+
+	print(
+		"🚤 Фаза размещения лодок начата! У каждого игрока по 2 човна"
+	)
+
+	-- Уведомляем всех клиентов
+	self.networkManager:getGameStartEvent():FireAllClients({
+		phase = "boats_placement",
+		message = "Фаза розміщення човнів!",
+		boatsPerPlayer = self.boatsPerPlayer,
+	})
+
+	-- Включаем подсветку тайлов с човнами
+	self:highlightBoatTiles(true)
+
+	self:startBoatTurn()
+end
+
+function PlacementPhase:startBoatTurn()
+	local currentPlayer = self.turnManager:getCurrentPlayer()
+
+	print("🚤 Ход игрока для размещения човна:", currentPlayer.Name)
+
+	-- Уведомляем всех о текущем игроке
+	self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
+		type = "BoatTurn",
+		currentPlayer = currentPlayer.Name,
+		boatsPlaced = self.boatsPlaced[currentPlayer] or 0,
+		maxBoats = self.boatsPerPlayer,
+		playersData = self:getPlayersBoatsData(),
+	})
+
+	-- Активируем UI для текущего игрока
+	self.networkManager:getGameStartEvent():FireClient(currentPlayer, {
+		phase = "boat_turn",
+		message = "Ваш хід! Розмістіть човен",
+		isYourTurn = true,
+		boatsLeft = self.boatsPerPlayer - (self.boatsPlaced[currentPlayer] or 0),
+	})
+
+	-- Відправляємо іншим гравцям очікування
+	for _, player in ipairs(self.turnManager.playersOrder) do
+		if player ~= currentPlayer then
+			self.networkManager:getGameStartEvent():FireClient(player, {
+				phase = "boat_waiting",
+				message = "Чекайте поки " .. currentPlayer.Name .. " розмістить човен",
+			})
+		end
+	end
+end
+
+function PlacementPhase:countAvailableBoats()
+	local count = 0
+	local map = workspace:WaitForChild("Map")
+
+	for _, obj in ipairs(map:GetDescendants()) do
+		if obj:IsA("MeshPart") and obj:GetAttribute("Placeboat") == true then
+			count += 1
+		end
+	end
+
+	return count
+end
+
+function PlacementPhase:highlightBoatTiles(highlight)
+	local map = workspace:WaitForChild("Map")
+
+	for _, obj in ipairs(map:GetDescendants()) do
+		if obj:IsA("MeshPart") and obj:GetAttribute("Placeboat") == true then
+			if highlight then
+				-- Включаем подсветку
+				local highlight = Instance.new("Highlight")
+				highlight.Name = "BoatHighlight"
+				highlight.FillColor = Color3.fromRGB(0, 100, 255)
+				highlight.OutlineColor = Color3.fromRGB(255, 136, 0)
+				highlight.FillTransparency = 0.8
+				highlight.OutlineTransparency = 0
+				highlight.Parent = obj
+			else
+				-- Выключаем подсветку
+				local existingHighlight = obj:FindFirstChild("BoatHighlight")
+				if existingHighlight then
+					existingHighlight:Destroy()
+				end
+			end
+		end
+	end
+end
+
+function PlacementPhase:handlePlaceBoat(player, q, r)
+	if not self.isActive or self.phase ~= "boats" then
+		warn("❌ Фаза размещения лодок не активна")
+		return false
+	end
+
+	-- Проверяем, что ход правильного игрока
+	local currentPlayer = self.turnManager:getCurrentPlayer()
+	if player ~= currentPlayer then
+		warn("❌ Не ваш ход! Сейчас ходит:", currentPlayer.Name)
+		return false
+	end
+
+	-- Проверяем лимит човнів гравця
+	local playerBoats = self.boatsPlaced[player] or 0
+	if playerBoats >= self.boatsPerPlayer then
+		warn("❌ Игрок", player.Name, "уже разместил всех човнов")
+		return false
+	end
+
+	-- Ищем тайл
+	local map = workspace:WaitForChild("Map")
+	local targetTile = nil
+
+	for _, obj in ipairs(map:GetDescendants()) do
+		if obj:IsA("MeshPart") then
+			local tileQ = obj:GetAttribute("Q") or obj:GetAttribute("q")
+			local tileR = obj:GetAttribute("R") or obj:GetAttribute("r")
+
+			if tileQ == q and tileR == r then
+				targetTile = obj
+				break
+			end
+		end
+	end
+
+	if not targetTile then
+		warn("❌ Тайл не найден: Q=", q, "R=", r)
+		return false
+	end
+
+	-- ВИПРАВЛЕНО: Перевіряємо атрибут Placeboat замість boat
+	--[[if targetTile:GetAttribute("Placeboat") ~= false then
+		warn("❌ На этот тайл нельзя ставить човен (Placeboat != true)")
+		return false
+	end]]
+	--
+
+	-- Проверяем не стоит ли уже човен
+	if self:hasBoatOnTile(q, r) then
+		warn("❌ На этом тайле уже есть човен")
+		return false
+	end
+
+	print("🚤 Игрок", player.Name, "размещает човен на Q=", q, "R=", r)
+
+	-- Создаем човен
+	self:createBoatVisual(player, q, r)
+	self.boatsPlaced[player] = (self.boatsPlaced[player] or 0) + 1
+
+	-- Убираем подсветку с этого тайла
+	local highlight = targetTile:FindFirstChild("BoatHighlight")
+	if highlight then
+		highlight:Destroy()
+	end
+
+	-- Уведомляем всех игроков
+	self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
+		type = "BoatPlaced",
+		playerName = player.Name,
+		boatsPlaced = self.boatsPlaced[player],
+		maxBoats = self.boatsPerPlayer,
+		q = q,
+		r = r,
+		playersData = self:getPlayersBoatsData(),
+	})
+
+	print(
+		"✅ Игрок",
+		player.Name,
+		"разместил човен",
+		self.boatsPlaced[player],
+		"/",
+		self.boatsPerPlayer
+	)
+
+	-- Переходимо до наступного гравця
+	self:moveToNextBoatPlayer()
+
+	return true
+end
+
+function PlacementPhase:moveToNextBoatPlayer()
+	-- Переходим к следующему игроку
+	local nextPlayer = self.turnManager:nextPlayer()
+
+	-- Проверяем завершение фазы човнів (всі поставили по 2 човни)
+	if self:allPlayersPlacedBoats() then
+		self:endBoatsPhase()
+		return
+	end
+
+	-- Шукаємо наступного гравця який ще не поставив всі човни
+	local currentPlayer = self.turnManager:getCurrentPlayer()
+	local attempts = 0
+
+	while (self.boatsPlaced[currentPlayer] or 0) >= self.boatsPerPlayer do
+		self.turnManager:nextPlayer()
+		currentPlayer = self.turnManager:getCurrentPlayer()
+		attempts += 1
+
+		if attempts >= #self.turnManager.playersOrder then
+			-- Всі поставили човни
+			self:endBoatsPhase()
+			return
+		end
+	end
+
+	-- Начинаем ход следующего игрока
+	self:startBoatTurn()
+
+	print("🔄 Переход к игроку для размещения човна:", currentPlayer.Name)
+end
+
+function PlacementPhase:allPlayersPlacedBoats()
+	for player, _ in pairs(self.playersData) do
+		if (self.boatsPlaced[player] or 0) < self.boatsPerPlayer then
+			return false
+		end
+	end
+	return true
+end
+
+function PlacementPhase:getPlayersBoatsData()
+	local data = {}
+	for player, playerData in pairs(self.playersData) do
+		data[player.Name] = {
+			boatsPlaced = self.boatsPlaced[player] or 0,
+			maxBoats = self.boatsPerPlayer,
+			displayName = player.DisplayName,
+		}
+	end
+	return data
+end
+
+function PlacementPhase:hasBoatOnTile(q, r)
+	-- Ищем човен по координатам
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:GetAttribute("IsBoat") then
+			local boatQ = obj:GetAttribute("Q")
+			local boatR = obj:GetAttribute("R")
+
+			if boatQ == q and boatR == r then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+function PlacementPhase:createBoatVisual(player, q, r)
+	if not self.boatTemplate then
+		warn("❌ Шаблон човна не найден")
+		return
+	end
+
+	-- Ищем тайл
+	local map = workspace:WaitForChild("Map")
+	local targetTile = nil
+
+	for _, obj in ipairs(map:GetDescendants()) do
+		if obj:IsA("MeshPart") then
+			local tileQ = obj:GetAttribute("Q") or obj:GetAttribute("q")
+			local tileR = obj:GetAttribute("R") or obj:GetAttribute("r")
+			if tileQ == q and tileR == r then
+				targetTile = obj
+				break
+			end
+		end
+	end
+
+	if not targetTile then
+		return
+	end
+
+	-- Создаем човен
+	local boat = self.boatTemplate:Clone()
+	boat.Name = "Boat_" .. player.Name .. "_" .. q .. "_" .. r
+
+	-- Позиционируем на тайле
+	local primaryPart = boat.PrimaryPart
+
+	-- Якщо немає PrimaryPart, створюємо його
+	if not primaryPart then
+		for _, part in ipairs(boat:GetDescendants()) do
+			if part:IsA("BasePart") then
+				primaryPart = part
+
+				boat.PrimaryPart = primaryPart
+				break
+			end
+		end
+	end
+
+	if primaryPart then
+		local tileTopY = targetTile.Position.Y + targetTile.Size.Y / 2
+		local boatBottomY = primaryPart.Position.Y - primaryPart.Size.Y / 2
+		local yOffset = tileTopY - boatBottomY + 0.1
+
+		boat:PivotTo(targetTile.CFrame + Vector3.new(0, yOffset, 0))
+	else
+		boat:PivotTo(targetTile.CFrame + Vector3.new(0, 2, 0))
+		warn(
+			"⚠️ PrimaryPart не знайдено, використовується резервне позиціонування"
+		)
+	end
+
+	-- Добавляем атрибуты
+	boat:SetAttribute("IsBoat", true)
+	boat:SetAttribute("Q", q)
+	boat:SetAttribute("R", r)
+
+	-- Помещаем в workspace
+	boat.Parent = workspace
+
+	print("🚤 Создан визуал човна для", player.Name, "на Q=", q, "R=", r)
+	self:createBoatAppearanceEffect(boat)
+end
+
+function PlacementPhase:createBoatAppearanceEffect(boat)
+	if not boat:IsA("Model") then
+		return
+	end
+
+	local primaryPart = boat.PrimaryPart
+	if not primaryPart then
+		return
+	end
+
+	-- Эффект подсветки
+	local highlight = Instance.new("Highlight")
+	highlight.FillColor = Color3.fromRGB(0, 100, 255)
+	highlight.OutlineColor = Color3.fromRGB(255, 255, 0)
+	highlight.FillTransparency = 0.7
+	highlight.OutlineTransparency = 0
+	highlight.Parent = boat
+
+	-- Убираем подсветку через 2 секунды
+	game:GetService("Debris"):AddItem(highlight, 2)
+end
+
+function PlacementPhase:endBoatsPhase()
+	self.isActive = false
+
+	-- Убираем подсветку
+	self:highlightBoatTiles(false)
+
+	print("🚤 Фаза размещения лодок завершена!")
+
+	-- Уведомляем всех клиентов
+	self.networkManager:getGameStartEvent():FireAllClients({
+		phase = "placement_complete",
+		message = "Усі човни розміщені! Гра починається...",
+	})
 end
 
 -- Получить данные игроков для клиентов

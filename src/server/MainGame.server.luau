@@ -73,9 +73,15 @@ function AtlantisGame:setupExplorerPlacement()
 	print("🎯 Настройка системы размещения исследователей...")
 
 	local PlaceExplorerEvent = self.networkManager:getPlaceExplorerEvent()
+	local PlaceBoatEvent = self.networkManager:getPlaceBoatEvent()
 
 	PlaceExplorerEvent.OnServerEvent:Connect(function(player, treasureValue, q, r)
 		local success = self.placementPhase:handlePlaceExplorer(player, treasureValue, q, r)
+		return success
+	end)
+
+	PlaceBoatEvent.OnServerEvent:Connect(function(player, q, r)
+		local success = self.placementPhase:handlePlaceBoat(player, q, r)
 		return success
 	end)
 

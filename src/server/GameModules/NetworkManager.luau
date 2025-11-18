@@ -29,6 +29,10 @@ function NetworkManager.new()
 	self.placeExplorerEvent.Name = "PlaceExplorerEvent"
 	self.placeExplorerEvent.Parent = eventsFolder
 
+	self.placeBoatEvent = Instance.new("RemoteEvent")
+	self.placeBoatEvent.Name = "PlaceBoatEvent"
+	self.placeBoatEvent.Parent = eventsFolder
+
 	return self
 end
 
@@ -47,6 +51,10 @@ end
 
 function NetworkManager:getPlaceExplorerEvent()
 	return self.placeExplorerEvent
+end
+
+function NetworkManager:getPlaceBoatEvent()
+	return self.placeBoatEvent
 end
 
 return NetworkManager

@@ -13,6 +13,7 @@ local GameEvents = ReplicatedStorage:WaitForChild("GameEvents")
 local PlaceExplorerEvent = GameEvents:WaitForChild("PlaceExplorerEvent")
 local UpdateReadyStatusEvent = GameEvents:WaitForChild("UpdateReadyStatusEvent")
 local GameStartEvent = GameEvents:WaitForChild("GameStartEvent")
+local PlaceBoatEvent = GameEvents:WaitForChild("PlaceBoatEvent")
 
 local playerTreasureLimits = {
 	[1] = { current = 0, max = 2, available = true },
@@ -21,6 +22,16 @@ local playerTreasureLimits = {
 	[4] = { current = 0, max = 2, available = true },
 	[5] = { current = 0, max = 2, available = true },
 }
+local playerBoatsPlaced = 0
+local playerMaxBoats = 2
+local currentPhase = "explorers"
+local selectedTreasureValue = nil
+local isPlacementMode = false
+local isMyTurn = false
+local explorersPlaced = 0
+local maxExplorers = 10
+local currentPlayersData = {}
+local currentHighlightedTile = nil
 
 -- Функция для получения визуального цвета игрока
 local function getPlayerVisualColor(playerName)
@@ -216,21 +227,6 @@ local statusLabel = mainFrame:WaitForChild("StatusLabel")
 -- Прогресс
 local progressLabel = mainFrame:WaitForChild("ProgressLabel")
 
--- Панель очереди игроков
-local queueFrame = screenGui:WaitForChild("QueueFrame")
-
-local queueTitle = queueFrame:WaitForChild("QueueTitle")
-
-local queueList = queueFrame:WaitForChild("QueueList")
-
--- Переменные
-local selectedTreasureValue = nil
-local isPlacementMode = false
-local isMyTurn = false
-local explorersPlaced = 0
-local maxExplorers = 10
-local currentPlayersData = {}
-
 -- Функция для получения цвета игрока по имени (для UI)
 local function getPlayerColor(playerName)
 	local hash = 0
@@ -249,41 +245,32 @@ local function updateQueueDisplay(turnInfo, playersData)
 	if not turnInfo then
 		return
 	end
+	if not playersData then
+		return
+	end
 
 	currentPlayersData = playersData or currentPlayersData
 
 	local queueText = ""
-	local currentIndex = turnInfo.currentPlayerIndex or 1
+	local currentPlayerName = turnInfo and turnInfo.currentPlayer and turnInfo.currentPlayer.Name or ""
 
-	for i, playerObj in ipairs(turnInfo.playersOrder or {}) do
-		local playerName = playerObj.Name
-		local playerData = currentPlayersData[playerName] or {}
-		local explorersCount = playerData.explorersPlaced or 0
-		local playerMaxExplorers = playerData.maxExplorers or 10
+	for playerName, playerData in pairs(playersData) do
+		local boatsCount = playerData.boatsPlaced or 0
+		local maxBoats = playerData.maxBoats or 2
 
 		local colorIcon = getPlayerColor(playerName)
 		local status = ""
 
-		if i == currentIndex then
-			status = "🎯 ЗАРАЗ ХОДИТЬ"
-		elseif explorersCount >= playerMaxExplorers then
+		if playerName == currentPlayerName then
+			status = "🚤 ЗАРАЗ ХОДИТЬ"
+		elseif boatsCount >= maxBoats then
 			status = "✅ ЗАВЕРШЕНО"
 		else
-			status = "⏳ ЧЕКАЄ СВОЄЇ ЧЕРГИ"
+			status = "⏳ ЧЕКАЄ"
 		end
 
-		queueText ..= string.format(
-			"%s %s: %d/%d - %s\n",
-			colorIcon,
-			playerName,
-			explorersCount,
-			playerMaxExplorers,
-			status
-		)
+		queueText ..= string.format("%s %s: %d/%d чов. - %s\n", colorIcon, playerName, boatsCount, maxBoats, status)
 	end
-
-	queueList.Text = queueText
-	queueFrame.Visible = true
 end
 
 -- Подсветка кнопок
@@ -335,13 +322,13 @@ end
 -- Обработчики кнопок сокровищ
 for value, button in pairs(treasureButtons) do
 	button.MouseButton1Click:Connect(function()
-		if not isMyTurn then
+		if not isMyTurn or currentPhase ~= "explorers" then
 			return
 		end
 
 		-- Проверяем доступность значения сокровищ
 		local limitInfo = playerTreasureLimits[value]
-		if not limitInfo.available then
+		if not limitInfo or not limitInfo.available then
 			statusLabel.Text = "❌ Ліміт для цього значення скарбів досягнуто!"
 			return
 		end
@@ -358,7 +345,7 @@ local function getTileUnderCursor()
 	local mouse = player:GetMouse()
 	local target = mouse.Target
 
-	if target and target:GetAttribute("IsLand") then
+	if target and (target:GetAttribute("IsLand") or target:GetAttribute("Placeboat")) then
 		return target
 	end
 
@@ -366,7 +353,6 @@ local function getTileUnderCursor()
 end
 
 -- Подсветка тайла
-local currentHighlightedTile = nil
 local function highlightTile(tile, highlight)
 	if currentHighlightedTile and currentHighlightedTile ~= tile then
 		-- Сбрасываем предыдущую подсветку
@@ -385,10 +371,9 @@ local function highlightTile(tile, highlight)
 		currentHighlightedTile = tile
 	end
 end
-
 -- Обработчик клика по тайлу
 local function onTileClick(tile)
-	if not isPlacementMode or not isMyTurn or not selectedTreasureValue then
+	if not isPlacementMode or not isMyTurn then
 		return
 	end
 
@@ -400,36 +385,102 @@ local function onTileClick(tile)
 		return
 	end
 
-	print(
-		"📍 Размещение исследователя на Q=",
-		q,
-		"R=",
-		r,
-		"с сокровищами:",
-		selectedTreasureValue
-	)
+	if currentPhase == "explorers" then
+		-- Фаза дослідників
+		if not selectedTreasureValue then
+			statusLabel.Text = "❌ Спочатку оберіть значення скарбів!"
+			return
+		end
 
-	-- Отправляем на сервер через FireServer
-	PlaceExplorerEvent:FireServer(selectedTreasureValue, q, r)
+		print(
+			"📍 Размещение исследователя на Q=",
+			q,
+			"R=",
+			r,
+			"с сокровищами:",
+			selectedTreasureValue
+		)
+		PlaceExplorerEvent:FireServer(selectedTreasureValue, q, r)
 
-	-- Сбрасываем выбор для следующего размещения
-	selectedTreasureValue = nil
-	updateButtonsHighlight()
-	statusLabel.Text = "Оберіть значення скарбів (1-5)"
+		-- Сбрасываем выбор для следующего размещения
+		selectedTreasureValue = nil
+		updateButtonsHighlight()
+		statusLabel.Text = "Оберіть значення скарбів (1-5)"
+	elseif currentPhase == "boats" then
+		-- Фаза човнів
+		if tile:GetAttribute("Placeboat") == true then
+			print("🚤 Размещение човна на Q=", q, "R=", r)
+			PlaceBoatEvent:FireServer(q, r)
+		else
+			statusLabel.Text = "❌ На цей тайл не можна ставити човен"
+			warn("❌ Тайл не має атрибута Placeboat=true")
+		end
+	end
 end
 
 -- Основной цикл для отслеживания мыши
 RunService.Heartbeat:Connect(function()
 	if not isPlacementMode or not isMyTurn then
 		if currentHighlightedTile then
-			highlightTile(currentHighlightedTile, false)
+			-- Сбрасываем подсветку
+			local prevTileType = currentHighlightedTile:GetAttribute("TileType")
+			if prevTileType == "Beach" then
+				currentHighlightedTile.BrickColor = BrickColor.new("Bright yellow")
+			elseif prevTileType == "Forest" then
+				currentHighlightedTile.BrickColor = BrickColor.new("Dark green")
+			elseif prevTileType == "Mountain" then
+				currentHighlightedTile.BrickColor = BrickColor.new("Medium stone grey")
+			end
 			currentHighlightedTile = nil
 		end
 		return
 	end
 
 	local tile = getTileUnderCursor()
-	highlightTile(tile, tile ~= nil)
+
+	if currentPhase == "explorers" then
+		-- Подсветка для исследователей (зеленая)
+		if currentHighlightedTile and currentHighlightedTile ~= tile then
+			-- Сбрасываем предыдущую подсветку
+			local prevTileType = currentHighlightedTile:GetAttribute("TileType")
+			if prevTileType == "Beach" then
+				currentHighlightedTile.BrickColor = BrickColor.new("Bright yellow")
+			elseif prevTileType == "Forest" then
+				currentHighlightedTile.BrickColor = BrickColor.new("Dark green")
+			elseif prevTileType == "Mountain" then
+				currentHighlightedTile.BrickColor = BrickColor.new("Medium stone grey")
+			end
+		end
+
+		if tile then
+			tile.BrickColor = BrickColor.new("Bright green")
+			currentHighlightedTile = tile
+		end
+	elseif currentPhase == "boats" then
+		-- Специальная подсветка для лодок
+		if currentHighlightedTile and currentHighlightedTile ~= tile then
+			-- Сбрасываем предыдущую подсветку
+			local prevTileType = currentHighlightedTile:GetAttribute("TileType")
+			if prevTileType == "Beach" then
+				currentHighlightedTile.BrickColor = BrickColor.new("Bright yellow")
+			elseif prevTileType == "Forest" then
+				currentHighlightedTile.BrickColor = BrickColor.new("Dark green")
+			elseif prevTileType == "Mountain" then
+				currentHighlightedTile.BrickColor = BrickColor.new("Medium stone grey")
+			end
+		end
+
+		if tile then
+			if tile:GetAttribute("Placeboat") == true then
+				-- Сине-зеленая подсветка для доступных лодок
+				tile.BrickColor = BrickColor.new("Bright blue")
+			else
+				-- Красная подсветка для недоступных
+				tile.BrickColor = BrickColor.new("Bright red")
+			end
+			currentHighlightedTile = tile
+		end
+	end
 end)
 
 -- Обработчик клика мыши
@@ -450,19 +501,47 @@ end)
 GameStartEvent.OnClientEvent:Connect(function(data)
 	if data.phase == "placement" then
 		-- Начинаем фазу размещения
+		currentPhase = "explorers"
 		isPlacementMode = true
 		screenGui.Enabled = true
 		statusLabel.Text = "Оберіть значення скарбів (1-5)"
 		print("🎯 Фаза размещения исследователей начата!")
 
 		-- Показываем очередь
-		queueFrame.Visible = true
+	elseif data.phase == "boats_placement" then
+		currentPhase = "boats"
+		isPlacementMode = true
+		screenGui.Enabled = true
+		playerMaxBoats = data.boatsPerPlayer or 2
+		playerBoatsPlaced = 0
+
+		-- Ховаємо кнопки скарбів
+		for _, button in pairs(treasureButtons) do
+			button.Visible = false
+		end
+
+		statusLabel.Text = "🚤 Оберіть тайл з синьою обводкою (Placeboat=true)"
+		turnInfoLabel.Text = "Фаза розміщення човнів"
+		progressLabel.Text = "Ваші човни: 0/" .. playerMaxBoats
+
+		print("🚤 Фаза размещения лодок начата! Шукайте тайли з Placeboat=true")
 	elseif data.phase == "player_turn" and data.isYourTurn then
 		-- Наш ход!
 		isMyTurn = true
 		turnInfoLabel.Text = "🎯 ВАШ ХІД! Оберіть дослідника"
 		updateUIStatus()
 		print("🎮 Ваш ход! Размещайте исследователя")
+	elseif data.phase == "boat_turn" and data.isYourTurn then
+		-- Наш хід у фазі човнів
+		isMyTurn = true
+		turnInfoLabel.Text = "🚤 ВАШ ХІД! Оберіть тайл для човна"
+		statusLabel.Text = "Шукайте тайли з Placeboat=true"
+		progressLabel.Text = "Ваші човни: " .. playerBoatsPlaced .. "/" .. playerMaxBoats
+	elseif data.phase == "boat_waiting" then
+		-- Чекаємо ходу іншого гравця
+		isMyTurn = false
+		turnInfoLabel.Text = "⏳ Чекайте свій хід для човна"
+		statusLabel.Text = data.message or "Чекайте..."
 	elseif data.phase == "waiting_turn" then
 		-- Ждем своего хода
 		isMyTurn = false
@@ -477,9 +556,129 @@ GameStartEvent.OnClientEvent:Connect(function(data)
 	end
 end)
 
+local function findExistingBoat(q, r)
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:GetAttribute("IsBoat") then
+			local boatQ = obj:GetAttribute("Q")
+			local boatR = obj:GetAttribute("R")
+			if boatQ == q and boatR == r then
+				return obj
+			end
+		end
+	end
+	return nil
+end
+
+local function spawnBoatAppearanceEffect(boat)
+	if not boat:IsA("Model") then
+		return
+	end
+
+	local primaryPart = boat.PrimaryPart
+	if not primaryPart then
+		return
+	end
+
+	-- Сохраняем оригинальный размер
+	local originalSize = primaryPart.Size
+
+	-- Эффект появления
+	primaryPart.Size = Vector3.new(0.1, 0.1, 0.1)
+	local tweenInfo = TweenInfo.new(0.7, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out)
+	local tween = TweenService:Create(primaryPart, tweenInfo, { Size = originalSize })
+	tween:Play()
+
+	-- Подсветка
+	local highlight = Instance.new("Highlight")
+	highlight.FillColor = Color3.fromRGB(0, 100, 255)
+	highlight.OutlineColor = Color3.fromRGB(255, 255, 0)
+	highlight.FillTransparency = 0.7
+	highlight.OutlineTransparency = 0
+	highlight.Parent = boat
+
+	game:GetService("Debris"):AddItem(highlight, 2)
+end
+
+local function createBoatVisual(playerName, q, r)
+	-- Ищем шаблон лодки
+	local boatTemplate = ReplicatedStorage:FindFirstChild("Boat")
+	if not boatTemplate then
+		warn("❌ Не найден шаблон Boat в ReplicatedStorage")
+		return
+	end
+
+	-- Ищем тайл
+	local map = workspace:WaitForChild("Map")
+	local targetTile = nil
+
+	for _, obj in ipairs(map:GetDescendants()) do
+		if obj:IsA("MeshPart") then
+			local tileQ = obj:GetAttribute("Q") or obj:GetAttribute("q")
+			local tileR = obj:GetAttribute("R") or obj:GetAttribute("r")
+			if tileQ == q and tileR == r then
+				targetTile = obj
+				break
+			end
+		end
+	end
+
+	if not targetTile then
+		warn("❌ Тайл для отображения човна не найден: Q=", q, "R=", r)
+		return
+	end
+
+	local existingBoat = findExistingBoat(q, r)
+	if existingBoat then
+		existingBoat:Destroy()
+	end
+	-- Создаем лодку
+	local boat = boatTemplate:Clone()
+	boat.Name = "Boat_" .. playerName .. "_" .. q .. "_" .. r
+
+	local primaryPart = boat.PrimaryPart
+
+	-- Убеждаемся, что у модели есть PrimaryPart
+	if not primaryPart then
+		for _, part in ipairs(boat:GetDescendants()) do
+			if part:IsA("BasePart") then
+				primaryPart = part
+				boat.PrimaryPart = primaryPart
+				break
+			end
+		end
+	end
+
+	if not boat.PrimaryPart then
+		warn("❌ У модели човна нет PrimaryPart")
+		boat:Destroy()
+		return
+	end
+
+	-- Позиционируем на тайле
+	local tileTopY = targetTile.Position.Y + targetTile.Size.Y / 2
+	local boatBottomY = primaryPart.Position.Y - primaryPart.Size.Y / 2
+	local yOffset = tileTopY - boatBottomY + 0.3
+
+	-- Устанавливаем цвет в зависимости от игрока
+	boat:PivotTo(targetTile.CFrame + Vector3.new(0, yOffset, 0))
+
+	-- Добавляем атрибуты
+	boat:SetAttribute("IsBoat", true)
+	boat:SetAttribute("Player", playerName)
+	boat:SetAttribute("Q", q)
+	boat:SetAttribute("R", r)
+
+	-- Помещаем в workspace
+	boat.Parent = workspace
+
+	-- Эффект появления
+	spawnBoatAppearanceEffect(boat)
+
+	print("🚤 Создан визуал човна для", playerName, "на Q=", q, "R=", r)
+end
+
 UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
 	if data.type == "ExplorerPlaced" then
-		-- ОНОВЛЮЄМО ТІЛЬКИ СВІЙ ПРОГРЕС, якщо це наш дослідник
 		if data.playerName == player.Name then
 			explorersPlaced = data.explorerCount or explorersPlaced
 			progressLabel.Text = "Розміщено: " .. explorersPlaced .. "/" .. maxExplorers
@@ -498,6 +697,37 @@ UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
 		if data.playerTreasureLimits then
 			playerTreasureLimits = data.playerTreasureLimits
 			updateButtonsHighlight()
+		end
+	elseif data.type == "BoatPlaced" then
+		-- Оновлюємо прогрес човнів
+		if data.playerName == player.Name then
+			playerBoatsPlaced = data.boatsPlaced or 0
+			progressLabel.Text = "Ваші човни: " .. playerBoatsPlaced .. "/" .. playerMaxBoats
+		end
+		createBoatVisual(data.playerName, data.q, data.r)
+		-- Оновлюємо загальну інформацію
+		if data.playersData then
+			updateQueueDisplay(nil, data.playersData) -- Оновлюємо відображення черги
+		end
+	elseif data.type == "BoatTurn" then
+		-- Оновлення черги гравців для човнів
+		local currentPlayerName = data.currentPlayer or ""
+		isMyTurn = (currentPlayerName == player.Name)
+
+		local boatsPlaced = data.boatsPlaced or 0
+		local maxBoats = data.maxBoats or 2
+		local boatsLeft = math.max(0, maxBoats - boatsPlaced)
+
+		if isMyTurn then
+			turnInfoLabel.Text = "🚤 ВАШ ХІД! Оберіть тайл для човна"
+			statusLabel.Text = "Залишилось човнів: " .. boatsLeft
+		else
+			turnInfoLabel.Text = "Зараз ходить: " .. currentPlayerName
+			statusLabel.Text = "⏳ Чекайте свій хід"
+		end
+
+		if data.playersData then
+			updateQueueDisplay(nil, data.playersData)
 		end
 	elseif data.type == "PlayerTurn" then
 		-- Оновлюємо інформацію про чергу
