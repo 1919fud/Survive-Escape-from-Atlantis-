@@ -115,7 +115,19 @@ function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
 		warn("❌ Фаза размещения не активна")
 		return false
 	end
-
+	--[[	if self:hasBoatOnTile(q, r) then
+		warn("❌ На этом тайле уже есть човен")
+		return false
+	end]]
+	--
+	if self:hasExplorerOnTile(q, r) then
+		warn("❌ На цьому тайлі вже є шукач")
+		self.networkManager:getGameStartEvent():FireClient(player, {
+			type = "error",
+			message = "❌ На цьому тайлі вже є шукач!",
+		})
+		return false
+	end
 	-- Проверяем, что ход правильного игрока
 	local currentPlayer = self.turnManager:getCurrentPlayer()
 	if player ~= currentPlayer then
@@ -244,7 +256,8 @@ function PlacementPhase:createExplorerVisual(player, treasureValue, q, r)
 	explorer.Name = "Explorer_" .. player.Name .. "_" .. treasureValue
 
 	-- Позиционируем над тайлом
-	local yOffset = explorer.Size.Y / 2 + targetTile.Size.Y / 2 + 0.5
+	--local yOffset = explorer.Size.Y / 2 + targetTile.Size.Y / 2 + 0.5
+	local yOffset = 1
 	explorer.CFrame = targetTile.CFrame + Vector3.new(0, yOffset, 0)
 
 	-- Устанавливаем цвет в зависимости от игрока
@@ -445,7 +458,7 @@ function PlacementPhase:highlightBoatTiles(highlight)
 				-- Включаем подсветку
 				local highlight = Instance.new("Highlight")
 				highlight.Name = "BoatHighlight"
-				highlight.FillColor = Color3.fromRGB(0, 100, 255)
+				highlight.FillColor = Color3.fromRGB(255, 136, 0)
 				highlight.OutlineColor = Color3.fromRGB(255, 136, 0)
 				highlight.FillTransparency = 0.8
 				highlight.OutlineTransparency = 0
@@ -615,6 +628,20 @@ function PlacementPhase:hasBoatOnTile(q, r)
 
 			if boatQ == q and boatR == r then
 				return true
+			end
+		end
+	end
+	return false
+end
+
+function PlacementPhase:hasExplorerOnTile(q, r)
+	-- Ищем исследователя по координатам
+	for player, playerData in pairs(self.playersData) do
+		if playerData.explorers then
+			for _, explorer in ipairs(playerData.explorers) do
+				if explorer.q == q and explorer.r == r then
+					return true
+				end
 			end
 		end
 	end

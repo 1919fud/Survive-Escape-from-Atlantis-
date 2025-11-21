@@ -142,7 +142,8 @@ local function createExplorerVisual(playerName, treasureValue, q, r)
 	-- Проверяем, не существует ли уже исследователь на этом тайле
 	local existingExplorer = findExistingExplorer(q, r)
 	if existingExplorer then
-		existingExplorer:Destroy()
+		warn("❌ На цьому тайлі вже є дослідник: Q=", q, "R=", r)
+		return
 	end
 
 	-- Создаем исследователя
@@ -335,7 +336,9 @@ for value, button in pairs(treasureButtons) do
 
 		selectedTreasureValue = value
 		updateButtonsHighlight()
-		statusLabel.Text = "Обрано скарбів: " .. value .. " → Клікніть на тайл землі"
+		statusLabel.Text = "Обрано скарбів: "
+			.. value
+			.. " → Клікніть на тайл острова"
 		print("🎒 Выбрано исследователя с сокровищами:", value)
 	end)
 end
@@ -353,24 +356,7 @@ local function getTileUnderCursor()
 end
 
 -- Подсветка тайла
-local function highlightTile(tile, highlight)
-	if currentHighlightedTile and currentHighlightedTile ~= tile then
-		-- Сбрасываем предыдущую подсветку
-		local prevTileType = currentHighlightedTile:GetAttribute("TileType")
-		if prevTileType == "Beach" then
-			currentHighlightedTile.BrickColor = BrickColor.new("Bright yellow")
-		elseif prevTileType == "Forest" then
-			currentHighlightedTile.BrickColor = BrickColor.new("Dark green")
-		elseif prevTileType == "Mountain" then
-			currentHighlightedTile.BrickColor = BrickColor.new("Medium stone grey")
-		end
-	end
 
-	if tile and highlight then
-		tile.BrickColor = BrickColor.new("Bright green")
-		currentHighlightedTile = tile
-	end
-end
 -- Обработчик клика по тайлу
 local function onTileClick(tile)
 	if not isPlacementMode or not isMyTurn then
@@ -389,23 +375,31 @@ local function onTileClick(tile)
 		-- Фаза дослідників
 		if not selectedTreasureValue then
 			statusLabel.Text = "❌ Спочатку оберіть значення скарбів!"
+			updateButtonsHighlight()
 			return
 		end
 
-		print(
-			"📍 Размещение исследователя на Q=",
-			q,
-			"R=",
-			r,
-			"с сокровищами:",
-			selectedTreasureValue
-		)
-		PlaceExplorerEvent:FireServer(selectedTreasureValue, q, r)
+		if tile:GetAttribute("IsLand") == true then
+			print(
+				"📍 Размещение исследователя на Q=",
+				q,
+				"R=",
+				r,
+				"с сокровищами:",
+				selectedTreasureValue
+			)
+			PlaceExplorerEvent:FireServer(selectedTreasureValue, q, r)
+			updateButtonsHighlight()
+			selectedTreasureValue = nil
+		else
+			statusLabel.Text = "❌ Тут не можна ставити дослідника (не земля)"
+			warn("❌ Тайл не є землею для розміщення дослідника")
+			updateButtonsHighlight()
+
+			statusLabel.Text = "Оберіть значення скарбів (1-5)"
+		end
 
 		-- Сбрасываем выбор для следующего размещения
-		selectedTreasureValue = nil
-		updateButtonsHighlight()
-		statusLabel.Text = "Оберіть значення скарбів (1-5)"
 	elseif currentPhase == "boats" then
 		-- Фаза човнів
 		if tile:GetAttribute("Placeboat") == true then
@@ -413,7 +407,7 @@ local function onTileClick(tile)
 			PlaceBoatEvent:FireServer(q, r)
 		else
 			statusLabel.Text = "❌ На цей тайл не можна ставити човен"
-			warn("❌ Тайл не має атрибута Placeboat=true")
+			warn("❌ Тайл не є водою для розміщення човна")
 		end
 	end
 end
@@ -423,13 +417,9 @@ RunService.Heartbeat:Connect(function()
 	if not isPlacementMode or not isMyTurn then
 		if currentHighlightedTile then
 			-- Сбрасываем подсветку
-			local prevTileType = currentHighlightedTile:GetAttribute("TileType")
-			if prevTileType == "Beach" then
-				currentHighlightedTile.BrickColor = BrickColor.new("Bright yellow")
-			elseif prevTileType == "Forest" then
-				currentHighlightedTile.BrickColor = BrickColor.new("Dark green")
-			elseif prevTileType == "Mountain" then
-				currentHighlightedTile.BrickColor = BrickColor.new("Medium stone grey")
+			local existingHighlight = currentHighlightedTile:FindFirstChild("TileHighlight")
+			if existingHighlight then
+				existingHighlight:Destroy()
 			end
 			currentHighlightedTile = nil
 		end
@@ -442,42 +432,76 @@ RunService.Heartbeat:Connect(function()
 		-- Подсветка для исследователей (зеленая)
 		if currentHighlightedTile and currentHighlightedTile ~= tile then
 			-- Сбрасываем предыдущую подсветку
-			local prevTileType = currentHighlightedTile:GetAttribute("TileType")
-			if prevTileType == "Beach" then
-				currentHighlightedTile.BrickColor = BrickColor.new("Bright yellow")
-			elseif prevTileType == "Forest" then
-				currentHighlightedTile.BrickColor = BrickColor.new("Dark green")
-			elseif prevTileType == "Mountain" then
-				currentHighlightedTile.BrickColor = BrickColor.new("Medium stone grey")
+			local existingHighlight = currentHighlightedTile:FindFirstChild("TileHighlight")
+			if existingHighlight then
+				existingHighlight:Destroy()
 			end
 		end
-
+		-- example tile = Title_3_4 нам нада от название только Title как написать в условии
 		if tile then
-			tile.BrickColor = BrickColor.new("Bright green")
+			-- Удаляем старый highlight если есть
+			local existingHighlight = tile:FindFirstChild("TileHighlight")
+			if existingHighlight then
+				existingHighlight:Destroy()
+			end
+
+			-- Создаем новый highlight
+			local highlight = Instance.new("Highlight")
+			highlight.Name = "TileHighlight"
+
+			if tile:GetAttribute("IsLand") == true then
+				-- Зеленая подсветка для земли
+				highlight.FillColor = Color3.fromRGB(38, 135, 57)
+				highlight.OutlineColor = Color3.fromRGB(0, 255, 38)
+				highlight.FillTransparency = 0.8
+				highlight.OutlineTransparency = 0
+			else
+				-- Красная подсветка для воды/недоступных тайлов
+				highlight.FillColor = Color3.fromRGB(167, 33, 33)
+				highlight.OutlineColor = Color3.fromRGB(255, 0, 0)
+				highlight.FillTransparency = 0.8
+				highlight.OutlineTransparency = 0
+			end
+
+			highlight.Parent = tile
 			currentHighlightedTile = tile
 		end
 	elseif currentPhase == "boats" then
 		-- Специальная подсветка для лодок
 		if currentHighlightedTile and currentHighlightedTile ~= tile then
 			-- Сбрасываем предыдущую подсветку
-			local prevTileType = currentHighlightedTile:GetAttribute("TileType")
-			if prevTileType == "Beach" then
-				currentHighlightedTile.BrickColor = BrickColor.new("Bright yellow")
-			elseif prevTileType == "Forest" then
-				currentHighlightedTile.BrickColor = BrickColor.new("Dark green")
-			elseif prevTileType == "Mountain" then
-				currentHighlightedTile.BrickColor = BrickColor.new("Medium stone grey")
+			local existingHighlight = currentHighlightedTile:FindFirstChild("TileHighlight")
+			if existingHighlight then
+				existingHighlight:Destroy()
 			end
 		end
 
 		if tile then
-			if tile:GetAttribute("Placeboat") == true then
-				-- Сине-зеленая подсветка для доступных лодок
-				tile.BrickColor = BrickColor.new("Bright blue")
-			else
-				-- Красная подсветка для недоступных
-				tile.BrickColor = BrickColor.new("Bright red")
+			-- Удаляем старый highlight если есть
+			local existingHighlight = tile:FindFirstChild("TileHighlight")
+			if existingHighlight then
+				existingHighlight:Destroy()
 			end
+
+			-- Создаем новый highlight
+			local highlight = Instance.new("Highlight")
+			highlight.Name = "TileHighlight"
+
+			if tile:GetAttribute("Placeboat") == true then
+				-- Синяя подсветка для доступных лодочных тайлов
+				highlight.FillColor = Color3.fromRGB(0, 100, 255)
+				highlight.OutlineColor = Color3.fromRGB(0, 200, 255)
+				highlight.FillTransparency = 0.8
+				highlight.OutlineTransparency = 0
+			else
+				-- Красная подсветка для недоступных тайлов
+				highlight.FillColor = Color3.fromRGB(167, 33, 33)
+				highlight.OutlineColor = Color3.fromRGB(255, 0, 0)
+				highlight.FillTransparency = 0.8
+				highlight.OutlineTransparency = 0
+			end
+
+			highlight.Parent = tile
 			currentHighlightedTile = tile
 		end
 	end
@@ -520,11 +544,13 @@ GameStartEvent.OnClientEvent:Connect(function(data)
 			button.Visible = false
 		end
 
-		statusLabel.Text = "🚤 Оберіть тайл з синьою обводкою (Placeboat=true)"
+		statusLabel.Text = "🚤 Оберіть тайл з помаранчевий обводкою"
 		turnInfoLabel.Text = "Фаза розміщення човнів"
 		progressLabel.Text = "Ваші човни: 0/" .. playerMaxBoats
 
-		print("🚤 Фаза размещения лодок начата! Шукайте тайли з Placeboat=true")
+		print(
+			"🚤 Фаза размещения лодок начата! Шукайте тайли з помаранчевий обводкою"
+		)
 	elseif data.phase == "player_turn" and data.isYourTurn then
 		-- Наш ход!
 		isMyTurn = true
@@ -535,7 +561,7 @@ GameStartEvent.OnClientEvent:Connect(function(data)
 		-- Наш хід у фазі човнів
 		isMyTurn = true
 		turnInfoLabel.Text = "🚤 ВАШ ХІД! Оберіть тайл для човна"
-		statusLabel.Text = "Шукайте тайли з Placeboat=true"
+		statusLabel.Text = "Шукайте тайли з помаранчевий обводкою"
 		progressLabel.Text = "Ваші човни: " .. playerBoatsPlaced .. "/" .. playerMaxBoats
 	elseif data.phase == "boat_waiting" then
 		-- Чекаємо ходу іншого гравця
@@ -773,6 +799,14 @@ UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
 		if data.playerTreasureLimits then
 			playerTreasureLimits = data.playerTreasureLimits
 			updateButtonsHighlight()
+		end
+	elseif data.type == "error" then
+		statusLabel.Text = data.message or "Помилка розміщення!"
+		statusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
+
+		if statusLabel then
+			statusLabel.Text = "Оберіть значення скарбів (1-5)"
+			statusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 		end
 	end
 end)
