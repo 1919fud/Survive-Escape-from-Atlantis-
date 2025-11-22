@@ -126,8 +126,9 @@ local function createExplorerVisual(playerName, treasureValue, q, r)
 		if obj:IsA("MeshPart") then
 			local tileQ = obj:GetAttribute("Q") or obj:GetAttribute("q")
 			local tileR = obj:GetAttribute("R") or obj:GetAttribute("r")
+			local isLand = obj:GetAttribute("IsLand")
 
-			if tileQ == q and tileR == r then
+			if tileQ == q and tileR == r and isLand == true then
 				targetTile = obj
 				break
 			end
@@ -166,10 +167,22 @@ local function createExplorerVisual(playerName, treasureValue, q, r)
 		explorer:Destroy()
 		return
 	end
+	-- Позиционируем на тайле
+	local tilePosition = targetTile.Position
+	local heightOffset = 0
+	local targetTileType = targetTile:GetAttribute("TileType")
+	print(targetTileType)
+	if targetTileType == "Beach" then
+		heightOffset = 6.062
+	elseif targetTileType == "Forest" then
+		heightOffset = 7.037
+	elseif targetTileType == "Mountain" then
+		heightOffset = 8.007
+	end
 
-	-- Позиционируем над тайлом
-	local yOffset = explorer.PrimaryPart.Size.Y / 2 + targetTile.Size.Y / 2 + 0.5
-	explorer:SetPrimaryPartCFrame(targetTile.CFrame + Vector3.new(0, yOffset, 0))
+	local explorerPosition = Vector3.new(tilePosition.X, heightOffset, tilePosition.Z)
+	local rotatedCFrame = CFrame.new(explorerPosition) * CFrame.Angles(0, math.rad(90), 0)
+	explorer:SetPrimaryPartCFrame(rotatedCFrame)
 
 	-- Устанавливаем цвет в зависимости от игрока
 	local playerColor = getPlayerVisualColor(playerName)
@@ -561,12 +574,14 @@ GameStartEvent.OnClientEvent:Connect(function(data)
 		-- Наш хід у фазі човнів
 		isMyTurn = true
 		turnInfoLabel.Text = "🚤 ВАШ ХІД! Оберіть тайл для човна"
+		updateUIStatus()
 		statusLabel.Text = "Шукайте тайли з помаранчевий обводкою"
 		progressLabel.Text = "Ваші човни: " .. playerBoatsPlaced .. "/" .. playerMaxBoats
 	elseif data.phase == "boat_waiting" then
 		-- Чекаємо ходу іншого гравця
 		isMyTurn = false
 		turnInfoLabel.Text = "⏳ Чекайте свій хід для човна"
+		updateUIStatus()
 		statusLabel.Text = data.message or "Чекайте..."
 	elseif data.phase == "waiting_turn" then
 		-- Ждем своего хода
@@ -685,8 +700,10 @@ local function createBoatVisual(playerName, q, r)
 	local boatBottomY = primaryPart.Position.Y - primaryPart.Size.Y / 2
 	local yOffset = tileTopY - boatBottomY + 0.3
 
-	-- Устанавливаем цвет в зависимости от игрока
-	boat:PivotTo(targetTile.CFrame + Vector3.new(0, yOffset, 0))
+	-- Додаємо обертання на 180 градусів навколо осі X або Z
+	local rotatedCFrame = (targetTile.CFrame + Vector3.new(0, yOffset, 0)) * CFrame.Angles(math.rad(180), 0, 0)
+
+	boat:PivotTo(rotatedCFrame)
 
 	-- Добавляем атрибуты
 	boat:SetAttribute("IsBoat", true)
