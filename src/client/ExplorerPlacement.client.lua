@@ -545,6 +545,18 @@ GameStartEvent.OnClientEvent:Connect(function(data)
 		print("🎯 Фаза размещения исследователей начата!")
 
 		-- Показываем очередь
+	elseif data.phase == "player_turn" and data.isYourTurn then
+		-- Наш ход!
+		isMyTurn = true
+		turnInfoLabel.Text = "🎯 ВАШ ХІД! Оберіть дослідника"
+		updateUIStatus()
+		print("🎮 Ваш ход! Размещайте исследователя")
+	elseif data.phase == "placement_complete" then
+		-- Фаза размещения завершена
+		isPlacementMode = false
+		isMyTurn = false
+		screenGui.Enabled = false
+		print("✅ Фаза размещения завершена!")
 	elseif data.phase == "boats_placement" then
 		currentPhase = "boats"
 		isPlacementMode = true
@@ -564,12 +576,6 @@ GameStartEvent.OnClientEvent:Connect(function(data)
 		print(
 			"🚤 Фаза размещения лодок начата! Шукайте тайли з помаранчевий обводкою"
 		)
-	elseif data.phase == "player_turn" and data.isYourTurn then
-		-- Наш ход!
-		isMyTurn = true
-		turnInfoLabel.Text = "🎯 ВАШ ХІД! Оберіть дослідника"
-		updateUIStatus()
-		print("🎮 Ваш ход! Размещайте исследователя")
 	elseif data.phase == "boat_turn" and data.isYourTurn then
 		-- Наш хід у фазі човнів
 		isMyTurn = true
@@ -588,12 +594,30 @@ GameStartEvent.OnClientEvent:Connect(function(data)
 		isMyTurn = false
 		turnInfoLabel.Text = "⏳ Чекайте свій хід..."
 		updateUIStatus()
-	elseif data.phase == "placement_complete" then
-		-- Фаза размещения завершена
+	elseif data.phase == "all_placement_complete" then
+		-- ВСЕ розміщення завершено
 		isPlacementMode = false
 		isMyTurn = false
 		screenGui.Enabled = false
-		print("✅ Фаза размещения завершена!")
+
+		if data.message then
+			print("📢 " .. data.message)
+		end
+
+		print("🎯 ВСЕ фази розміщення завершені! Чекаємо основну гру...")
+	elseif data.phase == "main_game" then
+		-- Основна фаза гри почалась
+		currentPhase = "main_game"
+		isPlacementMode = false
+		isMyTurn = false
+		screenGui.Enabled = false
+		print("🎮 Основна фаза гри почалась!")
+	elseif data.phase == "main_game_active" then
+		currentPhase = "main_game_active"
+		isPlacementMode = false
+		screenGui.Enabled = false
+
+		print("🎮 ОСНОВНАЯ ФАЗА ИГРЫ АКТИВНА!")
 	end
 end)
 

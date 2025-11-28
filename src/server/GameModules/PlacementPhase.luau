@@ -364,8 +364,6 @@ function PlacementPhase:endPhase()
 		message = "Усі дослідники розміщені! Гра починається...",
 	})
 	self:startBoatsPhase()
-
-	--self:startMainGame()
 end
 
 function PlacementPhase:startBoatsPhase()
@@ -752,6 +750,27 @@ function PlacementPhase:endBoatsPhase()
 		phase = "placement_complete",
 		message = "Усі човни розміщені! Гра починається...",
 	})
+
+	task.delay(3, function()
+		self:startMainGame()
+	end)
+end
+
+function PlacementPhase:startMainGame()
+	print("🎮 ПЕРЕХІД ДО ОСНОВНОЇ ГРИ!")
+
+	-- Уведомляем всех клиентов о начале основной фазы
+	self.networkManager:getGameStartEvent():FireAllClients({
+		phase = "main_game",
+		message = "ОСНОВНА ГРА ПОЧИНАЄТЬСЯ!",
+		countdown = 3,
+	})
+
+	task.delay(3, function()
+		if self.mainGame and self.mainGame.startMainGamePhase then
+			self.mainGame:startMainGamePhase()
+		end
+	end)
 end
 
 -- Получить данные игроков для клиентов

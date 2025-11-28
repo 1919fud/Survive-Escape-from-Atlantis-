@@ -36,6 +36,7 @@ function AtlantisGame:start()
 	self:setupReadySystem()
 	self:setupPlayerHandlers()
 	self:setupExplorerPlacement()
+	self:setupMainGameHandlers()
 end
 
 function AtlantisGame:initializeMap()
@@ -86,6 +87,14 @@ function AtlantisGame:setupExplorerPlacement()
 	end)
 
 	print("✅ Система размещения исследователей настроена")
+end
+
+function AtlantisGame:setupMainGameHandlers()
+	print("🎮 Настройка основных игровых обработчиков...")
+
+	-- add
+
+	print("✅ Основные игровые обработчики настроены")
 end
 
 function AtlantisGame:onPlayerJoined(player)
@@ -268,10 +277,23 @@ function AtlantisGame:startMainGame()
 	self.isGameActive = true
 	self.gameState = "placement"
 
-	-- Уведомляем всех о начале фазы размещения
 	self.placementPhase:start(self.players, self.networkManager)
 
 	print("🎮 Основная игра начата! Фаза размещения исследователей.")
+end
+
+function AtlantisGame:startMainGamePhase()
+	print("🎯 НАЧАЛО ОСНОВНОЙ ИГРОВОЙ ФАЗЫ!")
+	self.gameState = "main_game"
+	--self:setupMovementSystem()
+
+	-- Уведомляем всех игроков о начале основной игровой фазы
+	if self.networkManager then
+		self.networkManager:getGameStartEvent():FireAllClients({
+			phase = "main_game_active",
+			message = "Гра триває! Можна переміщати шукачів.",
+		})
+	end
 end
 
 -- Создание и запуск игры

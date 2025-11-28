@@ -33,6 +33,18 @@ function NetworkManager.new()
 	self.placeBoatEvent.Name = "PlaceBoatEvent"
 	self.placeBoatEvent.Parent = eventsFolder
 
+	self.selectExplorerEvent = Instance.new("RemoteEvent")
+	self.selectExplorerEvent.Name = "SelectExplorerEvent"
+	self.selectExplorerEvent.Parent = eventsFolder
+
+	self.moveExplorerEvent = Instance.new("RemoteEvent")
+	self.moveExplorerEvent.Name = "MoveExplorerEvent"
+	self.moveExplorerEvent.Parent = eventsFolder
+
+	self.highlightTilesEvent = Instance.new("RemoteEvent")
+	self.highlightTilesEvent.Name = "HighlightTilesEvent"
+	self.highlightTilesEvent.Parent = eventsFolder
+
 	return self
 end
 
@@ -55,6 +67,18 @@ end
 
 function NetworkManager:getPlaceBoatEvent()
 	return self.placeBoatEvent
+end
+
+function NetworkManager:getSelectExplorerEvent()
+	return self.selectExplorerEvent
+end
+
+function NetworkManager:getMoveExplorerEvent()
+	return self.moveExplorerEvent
+end
+
+function NetworkManager:getHighlightTilesEvent()
+	return self.highlightTilesEvent
 end
 
 return NetworkManager
