@@ -130,4 +130,17 @@ GameStartEvent.OnClientEvent:Connect(function(data)
 	screenGui.Enabled = false
 end)
 
+task.delay(0.001, function()
+	-- Відправляємо запит на сервер для отримання поточного статусу
+	PlayerReadyEvent:FireServer(false) -- Просто для ініціалізації
+
+	print("📡 Запитуємо поточний статус гравців...")
+end)
+
+-- Додайте обробник для PlayerRemoving для оновлення списку
+game:GetService("Players").PlayerRemoving:Connect(function(leftPlayer)
+	-- Можна додати логіку для видалення гравця зі списку
+	print("👤 Гравець вийшов:", leftPlayer.Name)
+end)
+
 print("✅ UI готовности загружен")

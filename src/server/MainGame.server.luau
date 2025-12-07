@@ -276,24 +276,262 @@ function AtlantisGame:startMainGame()
 	self.waitingForReady = false
 	self.isGameActive = true
 	self.gameState = "placement"
-
+	self.placementPhase.mainGame = self
 	self.placementPhase:start(self.players, self.networkManager)
 
 	print("🎮 Основная игра начата! Фаза размещения исследователей.")
 end
 
 function AtlantisGame:startMainGamePhase()
-	print("🎯 НАЧАЛО ОСНОВНОЙ ИГРОВОЙ ФАЗЫ!")
-	self.gameState = "main_game"
-	--self:setupMovementSystem()
+	print("🎮 НАЧАЛО ОСНОВНОЙ ИГРОВОЙ ФАЗЫ!")
 
-	-- Уведомляем всех игроков о начале основной игровой фазы
-	if self.networkManager then
-		self.networkManager:getGameStartEvent():FireAllClients({
-			phase = "main_game_active",
-			message = "Гра триває! Можна переміщати шукачів.",
+	self.gameState = "main_game"
+	self.isGameActive = true
+
+	-- Передаємо управління TurnManager
+	self.turnManager = TurnManager.new()
+	self.turnManager:initialize(self.players)
+	self.turnManager:startMainGamePhase()
+
+	-- Налаштовуємо систему руху
+	self:setupMovementSystem()
+
+	-- Уведомляем всіх гравців
+	self.networkManager:getGameStartEvent():FireAllClients({
+		phase = "main_game_active",
+		message = "🎮 ОСНОВНА ГРА ПОЧИНАЄТЬСЯ!",
+		currentPlayer = self.turnManager:getCurrentPlayer().Name,
+	})
+
+	-- Запускаємо перший хід
+	self:startPlayerTurn()
+end
+
+function AtlantisGame:startPlayerTurn()
+	local currentPlayer = self.turnManager:getCurrentPlayer()
+	local turnInfo = self.turnManager:getTurnInfo()
+
+	print("🎮 Початок ходу гравця:", currentPlayer.Name)
+
+	-- Отправляем информацию о ходе всем клиентам через GameStartEvent
+	for _, player in ipairs(self.turnManager.playersOrder) do
+		if player == currentPlayer then
+			-- Текущему игроку - его ход
+			self.networkManager:getGameStartEvent():FireClient(player, {
+				phase = "main_game_turn",
+				message = "Ваш хід! Використайте дії для переміщення дослідників",
+				isYourTurn = true,
+				remainingActions = turnInfo.remainingActions,
+				maxActions = turnInfo.maxActions,
+			})
+		else
+			-- Остальным игрокам - ожидание
+			self.networkManager:getGameStartEvent():FireClient(player, {
+				phase = "main_game_waiting",
+				message = "Чекайте поки " .. currentPlayer.Name .. " завершить хід",
+			})
+		end
+	end
+
+	-- Также отправляем UpdateReadyStatusEvent для обновления UI
+	self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
+		type = "MainGameTurn",
+		currentPlayer = currentPlayer.Name,
+		turnInfo = turnInfo,
+		remainingActions = turnInfo.remainingActions,
+		maxActions = turnInfo.maxActions,
+	})
+end
+
+function AtlantisGame:setupMovementSystem()
+	print("🚶 [СЕРВЕР] Налаштування системи переміщення...")
+
+	-- Отримуємо події для руху
+	local moveExplorerEvent = self.networkManager:getMoveExplorerEvent()
+	local selectExplorerEvent = self.networkManager:getSelectExplorerEvent()
+
+	print("🔗 [СЕРВЕР] SelectExplorerEvent підключено:", selectExplorerEvent ~= nil)
+	print("🔗 [СЕРВЕР] MoveExplorerEvent підключено:", moveExplorerEvent ~= nil)
+
+	-- Обробка вибору дослідника
+	if selectExplorerEvent then
+		selectExplorerEvent.OnServerEvent:Connect(function(player, explorerId)
+			print(
+				"🎯 [СЕРВЕР] Отримано SelectExplorerEvent від",
+				player.Name,
+				"з explorerId:",
+				explorerId
+			)
+			self:onPlayerSelectExplorer(player, explorerId)
+		end)
+	else
+		warn("❌ [СЕРВЕР] selectExplorerEvent не знайдено!")
+	end
+
+	-- Обробка руху дослідника
+	if moveExplorerEvent then
+		moveExplorerEvent.OnServerEvent:Connect(function(player, explorerId, q, r)
+			print(
+				"🚶 [СЕРВЕР] Отримано MoveExplorerEvent від",
+				player.Name,
+				"з explorerId:",
+				explorerId,
+				"Q=",
+				q,
+				"R=",
+				r
+			)
+			self:onPlayerMoveExplorer(player, explorerId, q, r)
+		end)
+	else
+		warn("❌ [СЕРВЕР] moveExplorerEvent не знайдено!")
+	end
+
+	print("✅ [СЕРВЕР] Система переміщення налаштована")
+end
+
+function AtlantisGame:onPlayerSelectExplorer(player, explorerId)
+	print("🎯 [СЕРВЕР] onPlayerSelectExplorer викликано")
+	print("  isGameActive:", self.isGameActive)
+	print("  gameState:", self.gameState)
+
+	if not self.isGameActive then
+		print("❌ [СЕРВЕР] Гра не активна!")
+		return false
+	end
+
+	if self.gameState ~= "main_game" then
+		print("❌ [СЕРВЕР] Не основна фаза гри!")
+		return false
+	end
+
+	-- Перевіряємо чи хід гравця
+	local currentPlayer = self.turnManager:getCurrentPlayer()
+	print("  Поточний гравець:", currentPlayer and currentPlayer.Name)
+	print("  Гравець, що вибрав:", player.Name)
+
+	if player ~= currentPlayer then
+		print("❌ [СЕРВЕР] Не ваш хід!")
+		return false
+	end
+
+	-- Знаходимо дослідника
+	local playerData = self.players[player]
+	if not playerData then
+		print("❌ [СЕРВЕР] Дані гравця не знайдені!")
+		return false
+	end
+
+	local explorer = nil
+	for _, exp in ipairs(playerData.explorers) do
+		print("  Перевіряємо дослідника:", exp.id, "шукаємо:", explorerId)
+		if exp.id == explorerId then
+			explorer = exp
+			break
+		end
+	end
+
+	if not explorer then
+		print("❌ [СЕРВЕР] Дослідник не знайдений!")
+		return false
+	end
+
+	print("✅ [СЕРВЕР] Знайдено дослідника на Q=", explorer.q, "R=", explorer.r)
+
+	-- Знаходимо доступні тайли для руху
+	local availableTiles = self.mapManager:getNeighbors(explorer.q, explorer.r)
+	print("📍 [СЕРВЕР] Знайдено доступних тайлів:", #availableTiles)
+
+	-- Надсилаємо клієнту список доступних тайлів
+	self.networkManager:getHighlightTilesEvent():FireClient(player, {
+		type = "movement",
+		explorerId = explorerId,
+		availableTiles = availableTiles,
+	})
+
+	print("✅ [СЕРВЕР] Подія HighlightTilesEvent відправлена клієнту")
+	return true
+end
+
+function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
+	print("🚶 [СЕРВЕР] onPlayerMoveExplorer викликано")
+	print("  explorerId:", explorerId, "Q=", q, "R=", r)
+
+	if not self.isGameActive or self.gameState ~= "main_game" then
+		print("❌ [СЕРВЕР] Гра не активна або не основна фаза!")
+		return false
+	end
+
+	-- Перевіряємо чи хід гравця
+	if player ~= self.turnManager:getCurrentPlayer() then
+		print("❌ [СЕРВЕР] Не ваш хід!")
+		return false
+	end
+
+	-- Використовуємо дію
+	if not self.turnManager:useAction(player) then
+		print("❌ [СЕРВЕР] Немає доступних дій!")
+		return false
+	end
+
+	-- Тут логіка переміщення дослідника...
+	print(
+		"🚶 [СЕРВЕР] Гравець",
+		player.Name,
+		"переміщує дослідника",
+		explorerId,
+		"на Q=",
+		q,
+		"R=",
+		r
+	)
+
+	-- Знаходимо дослідника
+	local playerData = self.players[player]
+	local explorer = nil
+	for _, exp in ipairs(playerData.explorers) do
+		if exp.id == explorerId then
+			explorer = exp
+			break
+		end
+	end
+
+	if explorer then
+		explorer.q = q
+		explorer.r = r
+
+		-- Уведомляємо всіх клієнтів про переміщення
+		self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
+			type = "ExplorerMoved",
+			explorerId = explorerId,
+			q = q,
+			r = r,
+			playerName = player.Name,
 		})
 	end
+
+	-- Перевіряємо чи закінчились дії
+	local remainingActions = self.turnManager:getRemainingActions(player)
+	if remainingActions <= 0 then
+		print(
+			"🎯 [СЕРВЕР] Усі дії використані, перехід до наступного гравця"
+		)
+		self:endPlayerTurn(player)
+	end
+
+	return true
+end
+
+function AtlantisGame:endPlayerTurn(player)
+	print("🎮 [СЕРВЕР] Завершення ходу гравця:", player.Name)
+
+	-- Переходимо до наступного гравця
+	local nextPlayer = self.turnManager:nextTurn()
+
+	-- Уведомляємо всіх про новий хід
+	self:startPlayerTurn()
+
+	return nextPlayer
 end
 
 -- Создание и запуск игры

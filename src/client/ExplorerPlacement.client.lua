@@ -109,7 +109,7 @@ local function spawnExplorerAppearanceEffect(explorer)
 end
 
 -- Создание визуала исследователя
-local function createExplorerVisual(playerName, treasureValue, q, r)
+local function createExplorerVisual(playerName, treasureValue, q, r, explorerId)
 	-- Ищем шаблон исследователя
 	local explorerTemplate = ReplicatedStorage:FindFirstChild("Explorer")
 	if not explorerTemplate then
@@ -197,6 +197,7 @@ local function createExplorerVisual(playerName, treasureValue, q, r)
 	-- Добавляем атрибуты
 	explorer:SetAttribute("Player", playerName)
 	explorer:SetAttribute("TreasureValue", treasureValue)
+	explorer:SetAttribute("ExplorerId", explorerId)
 	explorer:SetAttribute("Q", q)
 	explorer:SetAttribute("R", r)
 	explorer:SetAttribute("IsExplorer", true)
@@ -605,19 +606,16 @@ GameStartEvent.OnClientEvent:Connect(function(data)
 		end
 
 		print("🎯 ВСЕ фази розміщення завершені! Чекаємо основну гру...")
-	elseif data.phase == "main_game" then
+	elseif data.phase == "main_game_turn" and data.isYourTurn then
 		-- Основна фаза гри почалась
 		currentPhase = "main_game"
 		isPlacementMode = false
+		isMyTurn = true
+		-- Приховуємо UI розміщення, показуємо UI основної гри
+		screenGui.Enabled = false
+	elseif data.phase == "main_game_waiting" then
 		isMyTurn = false
 		screenGui.Enabled = false
-		print("🎮 Основна фаза гри почалась!")
-	elseif data.phase == "main_game_active" then
-		currentPhase = "main_game_active"
-		isPlacementMode = false
-		screenGui.Enabled = false
-
-		print("🎮 ОСНОВНАЯ ФАЗА ИГРЫ АКТИВНА!")
 	end
 end)
 
@@ -756,9 +754,12 @@ UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
 				updateUIStatus()
 			end
 		end
-
+		local explorerId = data.explorerId or data.explorerCount
+		if not explorerId then
+			explorerId = data.explorerCount
+		end
 		-- Створюємо візуал дослідника (для всіх гравців)
-		createExplorerVisual(data.playerName, data.treasureValue, data.q, data.r)
+		createExplorerVisual(data.playerName, data.treasureValue, data.q, data.r, explorerId)
 
 		-- Оновлюємо інформацію про ліміти якщо вона прийшла
 		if data.playerTreasureLimits then

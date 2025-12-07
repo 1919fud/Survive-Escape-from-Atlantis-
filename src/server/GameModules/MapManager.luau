@@ -23,7 +23,7 @@ function MapManager:discoverTiles()
 			if q ~= nil and r ~= nil then
 				local coordKey = self:getCoordKey(q, r)
 				self.waterTiles[coordKey] = obj
-				print("🌊 Найден водный тайл: Q=", q, "R=", r)
+				--print("🌊 Найден водный тайл: Q=", q, "R=", r)
 			end
 		end
 	end
@@ -34,7 +34,7 @@ function MapManager:discoverTiles()
 			local placeTile = obj:GetAttribute("Placetitle")
 			if placeTile ~= nil then
 				self.tilesTable[placeTile] = obj
-				print("📍 Найден спавн-тайл: Placetitle=", placeTile)
+				--print("📍 Найден спавн-тайл: Placetitle=", placeTile)
 			end
 		end
 	end
@@ -126,7 +126,7 @@ function MapManager:generateLandTiles()
 		end
 	end
 
-	print("🌍 Усього створено тайлів землі:", self:getLandTilesCount())
+	--print("🌍 Усього створено тайлів землі:", self:getLandTilesCount())
 	return self.landTiles
 end
 
@@ -190,7 +190,7 @@ function MapManager:createLandTile(landType, spawnTile, placeTileNumber)
 		newLand:SetAttribute("Placetitle", placeTileNumber)
 		newLand:SetAttribute("IsLand", true)
 
-		print("🌍 Поставив", landType, "на спавн", placeTileNumber, "→ Q=", q, "R=", r)
+		--print("🌍 Поставив", landType, "на спавн", placeTileNumber, "→ Q=", q, "R=", r)
 	else
 		warn("❌ Не удалось найти Q,R для спавна:", placeTileNumber)
 	end
@@ -208,7 +208,8 @@ function MapManager:getTileAtPosition(q, r)
 end
 
 function MapManager:getNeighbors(q, r)
-	-- Шесть направлений в гексагональной сетке
+	print("🗺️ [СЕРВЕР] Пошук сусідів для Q=", q, "R=", r)
+
 	local directions = {
 		{ 1, 0 },
 		{ 1, -1 },
@@ -225,7 +226,10 @@ function MapManager:getNeighbors(q, r)
 		local nr = r + dir[2]
 		local coordKey = self:getCoordKey(nq, nr)
 
+		print("  🔍 Перевіряємо координати: Q=", nq, "R=", nr, "Ключ:", coordKey)
+
 		if self.landTiles[coordKey] then
+			print("  ✅ Знайдено сусіда!")
 			table.insert(neighbors, {
 				q = nq,
 				r = nr,
@@ -235,6 +239,7 @@ function MapManager:getNeighbors(q, r)
 		end
 	end
 
+	print("📍 [СЕРВЕР] Знайдено сусідів:", #neighbors)
 	return neighbors
 end
 

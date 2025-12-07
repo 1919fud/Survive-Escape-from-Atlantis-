@@ -115,10 +115,10 @@ function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
 		warn("❌ Фаза размещения не активна")
 		return false
 	end
-	--[[	if self:hasBoatOnTile(q, r) then
-		warn("❌ На этом тайле уже есть човен")
-		return false
-	end]]
+	--[[    if self:hasBoatOnTile(q, r) then
+        warn("❌ На этом тайле уже есть човен")
+        return false
+    end]]
 	--
 	if self:hasExplorerOnTile(q, r) then
 		warn("❌ На цьому тайлі вже є шукач")
@@ -190,10 +190,13 @@ function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
 	table.insert(playerData.explorers, explorer)
 	playerData.explorersPlaced += 1
 
+	--self:createExplorerVisual(player, treasureValue, q, r, explorerId)
+
 	-- Уведомляем всех игроков
 	self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
 		type = "ExplorerPlaced",
 		playerName = player.Name,
+		explorerId = explorerId,
 		explorerCount = playerData.explorersPlaced,
 		maxExplorers = playerData.maxExplorers,
 		q = q,
@@ -219,7 +222,7 @@ function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
 	return true
 end
 
-function PlacementPhase:createExplorerVisual(player, treasureValue, q, r)
+function PlacementPhase:createExplorerVisual(player, treasureValue, q, r, explorerId)
 	local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 	-- Ищем шаблон исследователя
@@ -267,6 +270,7 @@ function PlacementPhase:createExplorerVisual(player, treasureValue, q, r)
 	-- Добавляем атрибуты
 	explorer:SetAttribute("Player", player.Name)
 	explorer:SetAttribute("TreasureValue", treasureValue)
+	explorer:SetAttribute("ExplorerId", explorerId)
 	explorer:SetAttribute("Q", q)
 	explorer:SetAttribute("R", r)
 	explorer:SetAttribute("IsExplorer", true)
@@ -282,6 +286,7 @@ function PlacementPhase:createExplorerVisual(player, treasureValue, q, r)
 		"R=",
 		r
 	)
+	return explorer
 end
 
 -- Продолжить ход того же игрока
@@ -515,9 +520,9 @@ function PlacementPhase:handlePlaceBoat(player, q, r)
 
 	-- ВИПРАВЛЕНО: Перевіряємо атрибут Placeboat замість boat
 	--[[if targetTile:GetAttribute("Placeboat") ~= false then
-		warn("❌ На этот тайл нельзя ставить човен (Placeboat != true)")
-		return false
-	end]]
+        warn("❌ На этот тайл нельзя ставить човен (Placeboat != true)")
+        return false
+    end]]
 	--
 
 	-- Проверяем не стоит ли уже човен
@@ -745,15 +750,40 @@ function PlacementPhase:endBoatsPhase()
 
 	print("🚤 Фаза размещения лодок завершена!")
 
-	-- Уведомляем всех клиентов
+	-- Уведомляем всех клиентов о начале основной игры
 	self.networkManager:getGameStartEvent():FireAllClients({
-		phase = "placement_complete",
-		message = "Усі човни розміщені! Гра починається...",
+		phase = "main_game_active",
+		message = "🎮 ОСНОВНА ГРА ПОЧИНАЄТЬСЯ!",
+		countdown = 3,
 	})
 
-	task.delay(3, function()
-		self:startMainGame()
-	end)
+	if self.mainGame and self.mainGame.startMainGamePhase then
+		self.mainGame:startMainGamePhase()
+	else
+		warn("❌ mainGame не доступен для старта основной фазы")
+	end
+end
+
+function PlacementPhase:initializeMainGameTurnManager()
+	-- Отримуємо TurnManager з основної гри
+	if not self.turnManager then
+		warn("❌ TurnManager не знайдено")
+		return
+	end
+
+	-- Переключаємо на основну фазу
+	self.turnManager:startMainGamePhase()
+
+	-- Уведомляем всех клиентов
+	self.networkManager:getGameStartEvent():FireAllClients({
+		phase = "main_game_active",
+		message = "🎮 ОСНОВНА ГРА ПОЧИНАЄТЬСЯ!",
+		currentPlayer = self.turnManager:getCurrentPlayer().Name,
+		round = self.turnManager.currentRound,
+	})
+
+	-- Запускаємо перший хід
+	self:startMainGamePlayerTurn()
 end
 
 function PlacementPhase:startMainGame()
@@ -771,6 +801,41 @@ function PlacementPhase:startMainGame()
 			self.mainGame:startMainGamePhase()
 		end
 	end)
+end
+
+function PlacementPhase:startMainGamePlayerTurn()
+	local currentPlayer = self.turnManager:getCurrentPlayer()
+	local turnInfo = self.turnManager:getTurnInfo()
+
+	print("🎮 Початок ходу в основній грі:", currentPlayer.Name)
+
+	-- Уведомляем всіх про поточного гравця
+	self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
+		type = "MainGameTurn",
+		currentPlayer = currentPlayer.Name,
+		turnInfo = turnInfo,
+		remainingActions = turnInfo.remainingActions,
+		maxActions = turnInfo.maxActions,
+	})
+
+	-- Активируємо UI для поточного гравця
+	self.networkManager:getGameStartEvent():FireClient(currentPlayer, {
+		phase = "main_game_turn",
+		message = "Ваш хід! Використайте дії для переміщення дослідників",
+		isYourTurn = true,
+		remainingActions = turnInfo.remainingActions,
+		maxActions = turnInfo.maxActions,
+	})
+
+	-- Інші гравці чекають
+	for _, player in ipairs(turnInfo.playersOrder) do
+		if player ~= currentPlayer then
+			self.networkManager:getGameStartEvent():FireClient(player, {
+				phase = "main_game_waiting",
+				message = "Чекайте поки " .. currentPlayer.Name .. " завершить хід",
+			})
+		end
+	end
 end
 
 -- Получить данные игроков для клиентов

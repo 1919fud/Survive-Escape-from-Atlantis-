@@ -9,6 +9,10 @@ function TurnManager.new()
 	self.currentRound = 1
 	self.maxExplorersPerPlayer = 10
 	self.placementCompleted = {} -- Трекаємо хто завершив розміщення
+
+	self.gamePhase = "placement" -- placement, main_game
+	self.turnActionsLeft = 3
+	self.PlayerActionsUsed = {}
 	return self
 end
 
@@ -64,6 +68,71 @@ function TurnManager:nextPlayer()
 	return self:getCurrentPlayer()
 end
 
+function TurnManager:nextTurn()
+	if self.gamePhase ~= "main_game" then
+		warn("❌ Не основна фаза гри!")
+		return self:getCurrentPlayer()
+	end
+
+	local currentPlayer = self:getCurrentPlayer()
+	print("🎮 Завершення ходу гравця:", currentPlayer.Name)
+
+	-- Переходимо до наступного гравця
+	self.currentPlayerIndex += 1
+
+	-- Якщо дошли до кінця списку, починаємо новий раунд
+	if self.currentPlayerIndex > #self.playersOrder then
+		self.currentPlayerIndex = 1
+		self.currentRound += 1
+		print("🔄 Новий раунд основної гри:", self.currentRound)
+	end
+
+	local nextPlayer = self:getCurrentPlayer()
+
+	-- Скидаємо лічильник дій для нового гравця
+	self.playerActionsUsed[nextPlayer] = 0
+
+	print("🎮 Перехід ходу: ", currentPlayer.Name, "→", nextPlayer.Name)
+	return nextPlayer
+end
+
+function TurnManager:useAction(player)
+	if self.gamePhase ~= "main_game" then
+		warn("❌ Не основна фаза гри!")
+		return false
+	end
+
+	if player ~= self:getCurrentPlayer() then
+		warn("❌ Не ваш хід!")
+		return false
+	end
+
+	local actionsUsed = self.playerActionsUsed[player] or 0
+
+	if actionsUsed >= self.turnActionsLeft then
+		warn("❌ Усі дії використані!")
+		return false
+	end
+
+	self.playerActionsUsed[player] = actionsUsed + 1
+
+	-- Перевіряємо чи закінчились дії
+	if self.playerActionsUsed[player] >= self.turnActionsLeft then
+		print("✅ Гравець", player.Name, "використав усі дії. Кінець ходу.")
+	end
+
+	return true
+end
+
+function TurnManager:getRemainingActions(player)
+	if self.gamePhase ~= "main_game" then
+		return 0
+	end
+
+	local actionsUsed = self.playerActionsUsed[player] or 0
+	return math.max(0, self.turnActionsLeft - actionsUsed)
+end
+
 -- Перевіряємо, чи всі гравці завершили розміщення
 function TurnManager:allPlayersFinished(playersData)
 	if not playersData then
@@ -80,18 +149,62 @@ function TurnManager:allPlayersFinished(playersData)
 end
 
 function TurnManager:getCurrentPlayer()
+	if #self.playersOrder == 0 then
+		return nil
+	end
 	return self.playersOrder[self.currentPlayerIndex]
 end
 
 function TurnManager:getTurnInfo()
+	local currentPlayer = self:getCurrentPlayer()
+	local remainingActions = 0
+
+	if currentPlayer and self.gamePhase == "main_game" then
+		remainingActions = self:getRemainingActions(currentPlayer)
+	end
+
 	return {
-		currentPlayer = self:getCurrentPlayer(),
+		currentPlayer = currentPlayer,
 		currentPlayerIndex = self.currentPlayerIndex,
 		totalPlayers = #self.playersOrder,
 		currentRound = self.currentRound,
 		playersOrder = self.playersOrder,
 		placementCompleted = self.placementCompleted,
+		gamePhase = self.gamePhase,
+		remainingActions = remainingActions,
+		maxActions = self.turnActionsLeft,
 	}
+end
+
+function TurnManager:startPlayerTurn(player)
+	if self.gamePhase ~= "main_game" then
+		return false
+	end
+
+	if player ~= self:getCurrentPlayer() then
+		return false
+	end
+
+	-- Скидаємо лічильник дій для початку нового ходу
+	self.playerActionsUsed[player] = 0
+
+	print("🎮 Початок ходу гравця:", player.Name)
+	return true
+end
+
+function TurnManager:startMainGamePhase()
+	self.gamePhase = "main_game"
+	self.currentPlayerIndex = 1
+	self.currentRound = 1
+
+	-- Скидаємо лічильники дій для всіх гравців
+	self.playerActionsUsed = {}
+	for _, player in ipairs(self.playersOrder) do
+		self.playerActionsUsed[player] = 0
+	end
+
+	print("🎮 Основна фаза гри розпочата!")
+	return self:getCurrentPlayer()
 end
 
 return TurnManager
