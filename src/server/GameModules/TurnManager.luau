@@ -193,6 +193,8 @@ function TurnManager:startPlayerTurn(player)
 end
 
 function TurnManager:startMainGamePhase()
+	print("🎮 [TURN MANAGER] Основна фаза гри розпочата!")
+
 	self.gamePhase = "main_game"
 	self.currentPlayerIndex = 1
 	self.currentRound = 1
@@ -205,6 +207,31 @@ function TurnManager:startMainGamePhase()
 
 	print("🎮 Основна фаза гри розпочата!")
 	return self:getCurrentPlayer()
+end
+
+function TurnManager:endPlayerTurn(player)
+	print("🎮 [TURN MANAGER] Завершення ходу гравця:", player.Name)
+
+	-- Скидаємо дії для цього гравця
+	self.remainingActions[player] = 0
+
+	-- Переходимо до наступного гравця
+	self.currentPlayerIndex = self.currentPlayerIndex + 1
+	if self.currentPlayerIndex > #self.playersOrder then
+		self.currentPlayerIndex = 1
+		self.currentRound = self.currentRound + 1
+		print("🔄 [TURN MANAGER] Новий раунд:", self.currentRound)
+	end
+
+	local nextPlayer = self.playersOrder[self.currentPlayerIndex]
+
+	-- Скидаємо дії для нового гравця
+	self.remainingActions[nextPlayer] = self.maxActions
+
+	print("🎮 [TURN MANAGER] Наступний хід грає:", nextPlayer.Name)
+	print("  Залишилось дій:", self.remainingActions[nextPlayer])
+
+	return nextPlayer
 end
 
 return TurnManager

@@ -288,7 +288,40 @@ function AtlantisGame:startMainGamePhase()
 	self.gameState = "main_game"
 	self.isGameActive = true
 
-	-- Передаємо управління TurnManager
+	-- ПЕРЕДАЕМ ЭКСПЛОРЕРОВ ИЗ PLACEMENTPHASE В ОСНОВНУЮ ИГРУ
+	if self.placementPhase and self.placementPhase.playersData then
+		for player, placementData in pairs(self.placementPhase.playersData) do
+			if self.players[player] then
+				self.players[player].explorers = {}
+				print("🔄 Передаємо дослідників гравцю", player.Name)
+
+				for i, exp in ipairs(placementData.explorers) do
+					-- ВАЖНО: Сохраняем ссылку на объект игрока
+					local explorer = {
+						id = exp.id or i,
+						player = player, -- Ссылка на объект игрока!
+						treasureValue = exp.treasureValue,
+						q = exp.q,
+						r = exp.r,
+					}
+					table.insert(self.players[player].explorers, explorer)
+					print(
+						"  Дослідник",
+						explorer.id,
+						"Q=",
+						explorer.q,
+						"R=",
+						explorer.r,
+						"власник:",
+						explorer.player.Name
+					)
+				end
+				print("  Всього дослідників:", #self.players[player].explorers)
+			end
+		end
+	end
+
+	-- Инициализируем TurnManager с игроками
 	self.turnManager = TurnManager.new()
 	self.turnManager:initialize(self.players)
 	self.turnManager:startMainGamePhase()
@@ -300,7 +333,6 @@ function AtlantisGame:startMainGamePhase()
 	self.networkManager:getGameStartEvent():FireAllClients({
 		phase = "main_game_active",
 		message = "🎮 ОСНОВНА ГРА ПОЧИНАЄТЬСЯ!",
-		currentPlayer = self.turnManager:getCurrentPlayer().Name,
 	})
 
 	-- Запускаємо перший хід
@@ -311,7 +343,8 @@ function AtlantisGame:startPlayerTurn()
 	local currentPlayer = self.turnManager:getCurrentPlayer()
 	local turnInfo = self.turnManager:getTurnInfo()
 
-	print("🎮 Початок ходу гравця:", currentPlayer.Name)
+	print("🎮 [СЕРВЕР] Початок ходу гравця:", currentPlayer.Name)
+	print("  Залишилось дій:", turnInfo.remainingActions, "/", turnInfo.maxActions)
 
 	-- Отправляем информацию о ходе всем клиентам через GameStartEvent
 	for _, player in ipairs(self.turnManager.playersOrder) do
@@ -333,7 +366,6 @@ function AtlantisGame:startPlayerTurn()
 		end
 	end
 
-	-- Также отправляем UpdateReadyStatusEvent для обновления UI
 	self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
 		type = "MainGameTurn",
 		currentPlayer = currentPlayer.Name,
@@ -392,8 +424,8 @@ end
 
 function AtlantisGame:onPlayerSelectExplorer(player, explorerId)
 	print("🎯 [СЕРВЕР] onPlayerSelectExplorer викликано")
-	print("  isGameActive:", self.isGameActive)
-	print("  gameState:", self.gameState)
+	print("  Гравець:", player.Name)
+	print("  Запитує explorerId:", explorerId, "тип:", type(explorerId))
 
 	if not self.isGameActive then
 		print("❌ [СЕРВЕР] Гра не активна!")
@@ -407,11 +439,8 @@ function AtlantisGame:onPlayerSelectExplorer(player, explorerId)
 
 	-- Перевіряємо чи хід гравця
 	local currentPlayer = self.turnManager:getCurrentPlayer()
-	print("  Поточний гравець:", currentPlayer and currentPlayer.Name)
-	print("  Гравець, що вибрав:", player.Name)
-
 	if player ~= currentPlayer then
-		print("❌ [СЕРВЕР] Не ваш хід!")
+		print("❌ [СЕРВЕР] Не ваш хід! Зараз ходить:", currentPlayer.Name)
 		return false
 	end
 
@@ -422,21 +451,79 @@ function AtlantisGame:onPlayerSelectExplorer(player, explorerId)
 		return false
 	end
 
+	print("  Кількість дослідників у гравця:", #(playerData.explorers or {}))
+
 	local explorer = nil
-	for _, exp in ipairs(playerData.explorers) do
-		print("  Перевіряємо дослідника:", exp.id, "шукаємо:", explorerId)
-		if exp.id == explorerId then
-			explorer = exp
-			break
+	if playerData.explorers then
+		-- Преобразуем explorerId для сравнения
+		explorerId = tonumber(explorerId)
+		if not explorerId then
+			print("❌ [СЕРВЕР] Неправильний формат explorerId")
+			return false
+		end
+
+		for i, exp in ipairs(playerData.explorers) do
+			print(
+				"  Перевіряємо дослідника:",
+				i,
+				"ID:",
+				exp.id,
+				"тип:",
+				type(exp.id),
+				"власник:",
+				exp.player and exp.player.Name
+			)
+
+			if exp.id == explorerId then
+				-- ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: принадлежит ли исследователь этому игроку
+				if exp.player == player then
+					explorer = exp
+					print("  ✅ Знайдено дослідника гравця:", player.Name)
+				else
+					print("❌ [СЕРВЕР] Дослідник належить іншому гравцю!")
+					print("    Очікуваний гравець:", player.Name)
+					print("    Фактичний гравець:", exp.player and exp.player.Name)
+					return false
+				end
+				break
+			end
 		end
 	end
 
 	if not explorer then
-		print("❌ [СЕРВЕР] Дослідник не знайдений!")
+		print(
+			"❌ [СЕРВЕР] Дослідник не знайдений або не належить гравцю!"
+		)
+		-- Покажем всех исследователей для отладки
+		if playerData.explorers then
+			for i, exp in ipairs(playerData.explorers) do
+				print(
+					"  Дослідник",
+					i,
+					"ID:",
+					exp.id,
+					"Q:",
+					exp.q,
+					"R:",
+					exp.r,
+					"Treasure:",
+					exp.treasureValue,
+					"Player:",
+					exp.player and exp.player.Name
+				)
+			end
+		end
 		return false
 	end
 
-	print("✅ [СЕРВЕР] Знайдено дослідника на Q=", explorer.q, "R=", explorer.r)
+	print(
+		"✅ [СЕРВЕР] Знайдено дослідника ID:",
+		explorer.id,
+		"на Q=",
+		explorer.q,
+		"R=",
+		explorer.r
+	)
 
 	-- Знаходимо доступні тайли для руху
 	local availableTiles = self.mapManager:getNeighbors(explorer.q, explorer.r)
@@ -455,7 +542,7 @@ end
 
 function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
 	print("🚶 [СЕРВЕР] onPlayerMoveExplorer викликано")
-	print("  explorerId:", explorerId, "Q=", q, "R=", r)
+	print("  Гравець:", player.Name, "explorerId:", explorerId, "Q=", q, "R=", r)
 
 	if not self.isGameActive or self.gameState ~= "main_game" then
 		print("❌ [СЕРВЕР] Гра не активна або не основна фаза!")
@@ -474,11 +561,42 @@ function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
 		return false
 	end
 
-	-- Тут логіка переміщення дослідника...
+	-- Знаходимо дослідника с проверкой владельца
+	local playerData = self.players[player]
+	if not playerData then
+		print("❌ [СЕРВЕР] Дані гравця не знайдені!")
+		return false
+	end
+
+	explorerId = tonumber(explorerId)
+	if not explorerId then
+		print("❌ [СЕРВЕР] Неправильний формат explorerId")
+		return false
+	end
+
+	local explorer = nil
+	for _, exp in ipairs(playerData.explorers) do
+		if exp.id == explorerId then
+			-- Проверяем владельца
+			if exp.player == player then
+				explorer = exp
+				break
+			else
+				print("❌ [СЕРВЕР] Цей дослідник не належить гравцю!")
+				return false
+			end
+		end
+	end
+
+	if not explorer then
+		print("❌ [СЕРВЕР] Дослідник не знайдений у гравця")
+		return false
+	end
+
 	print(
 		"🚶 [СЕРВЕР] Гравець",
 		player.Name,
-		"переміщує дослідника",
+		"переміщує свого дослідника",
 		explorerId,
 		"на Q=",
 		q,
@@ -486,29 +604,18 @@ function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
 		r
 	)
 
-	-- Знаходимо дослідника
-	local playerData = self.players[player]
-	local explorer = nil
-	for _, exp in ipairs(playerData.explorers) do
-		if exp.id == explorerId then
-			explorer = exp
-			break
-		end
-	end
+	-- Обновляем позицию
+	explorer.q = q
+	explorer.r = r
 
-	if explorer then
-		explorer.q = q
-		explorer.r = r
-
-		-- Уведомляємо всіх клієнтів про переміщення
-		self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
-			type = "ExplorerMoved",
-			explorerId = explorerId,
-			q = q,
-			r = r,
-			playerName = player.Name,
-		})
-	end
+	-- Уведомляємо всіх клієнтів про переміщення
+	self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
+		type = "ExplorerMoved",
+		explorerId = explorerId,
+		q = q,
+		r = r,
+		playerName = player.Name, -- Важно отправлять имя владельца
+	})
 
 	-- Перевіряємо чи закінчились дії
 	local remainingActions = self.turnManager:getRemainingActions(player)

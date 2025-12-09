@@ -136,10 +136,28 @@ local function getExplorerUnderCursor()
 
 	if explorerModel then
 		local explorerId = explorerModel:GetAttribute("ExplorerId")
-		if explorerId then
-			print("🔍 Знайдено дослідника ID:", explorerId)
+		local explorerPlayer = explorerModel:GetAttribute("Player")
+
+		-- Перевіряємо обидва атрибути
+		if explorerId and explorerPlayer then
+			-- Преобразуем ID в число для согласованности с сервером
+			explorerId = tonumber(explorerId) or explorerId
+			print(
+				"🔍 Знайдено дослідника ID:",
+				explorerId,
+				"гравця:",
+				explorerPlayer,
+				"тип ID:",
+				type(explorerId)
+			)
+			return explorerModel
+		else
+			-- Логируем если атрибуты не полные
+			print("⚠️ Модель має IsExplorer=true, але відсутні атрибути:")
+			print("  ExplorerId:", explorerId)
+			print("  Player:", explorerPlayer)
+			return nil
 		end
-		return explorerModel
 	end
 
 	return nil
@@ -300,31 +318,46 @@ end
 -- Обробник кліку по досліднику
 local function onExplorerClick(explorer)
 	if not isGamePhaseActive or not isMyTurn then
-		print("❌ Не ваш хід або фаза не активна")
+		print("❌ Не ваш хід або фаза не активна!")
+		print("  isGamePhaseActive:", isGamePhaseActive)
+		print("  isMyTurn:", isMyTurn)
 		return
 	end
 
 	local explorerPlayer = explorer:GetAttribute("Player")
 	local explorerId = explorer:GetAttribute("ExplorerId")
 
+	-- Преобразуем ID в число
+	explorerId = tonumber(explorerId) or explorerId
+
+	print("🖱️ Клік по досліднику:")
+	print("  ID:", explorerId)
+	print("  Власник:", explorerPlayer)
+	print("  Ваше ім'я:", player.Name)
+
 	-- Перевіряємо чи це наш дослідник
 	if explorerPlayer ~= player.Name then
-		print("❌ Це не ваш дослідник")
+		print("❌ Це не ваш дослідник!")
+		print("  Очікуваний власник:", player.Name)
+		print("  Фактичний власник:", explorerPlayer)
 		return
 	end
 
-	-- Перевіряємо чи це вже обраний дослідник (порівнюємо за ID, а не за об'єктом)
+	-- Перевіряємо чи це вже обраний дослідник
 	local selectedId = selectedExplorer and selectedExplorer:GetAttribute("ExplorerId")
+	local selectedPlayer = selectedExplorer and selectedExplorer:GetAttribute("Player")
 
-	-- Якщо вже є обраний дослідник і це не він, то ігноруємо клік
-	if selectedExplorer and explorerId ~= selectedId then
+	selectedId = selectedId and (tonumber(selectedId) or selectedId)
+
+	if selectedExplorer and (explorerId ~= selectedId or explorerPlayer ~= selectedPlayer) then
 		print(
 			"⚠️ Вже обрано дослідника. Скасуйте поточний вибір, щоб обрати іншого."
 		)
+		print("  Обраний дослідник ID:", selectedId, "власник:", selectedPlayer)
 		return
 	end
 
-	if explorerId == selectedId then
+	if explorerId == selectedId and explorerPlayer == selectedPlayer then
 		-- Вже обраний - скасовуємо вибір
 		clearTileHighlights()
 		highlightSelectedExplorer(selectedExplorer, false)
@@ -336,7 +369,7 @@ local function onExplorerClick(explorer)
 		-- Обираємо нового дослідника
 		clearTileHighlights()
 		highlightSelectedExplorer(explorer, true)
-		print("🎯 Обрано дослідника ID:", explorerId)
+		print("🎯 Обрано дослідника ID:", explorerId, "гравця:", explorerPlayer)
 
 		-- Повідомляємо сервер про вибір дослідника
 		SelectExplorerEvent:FireServer(explorerId)
@@ -417,24 +450,42 @@ GameStartEvent.OnClientEvent:Connect(function(data)
 	if data.phase == "main_game_active" then
 		-- Основная игра началась
 		isGamePhaseActive = true
-		isMyTurn = false -- Пока не наш ход
+		isMyTurn = false -- Пока не наш хід
 		print("🎮 Основна гра активна. Чекаємо на хід...")
 	elseif data.phase == "main_game_turn" and data.isYourTurn then
-		-- Наш ход в основной игре
+		-- Наш хід в основной игре
 		isGamePhaseActive = true
 		isMyTurn = true
 		print("🎮 Ваш хід! Можете обирати дослідників")
+		print("  Залишилось дій:", data.remainingActions or 3)
 
 		-- Показываем UI выбора
 		selectionFrame.Visible = true
 		titleLabel.Text = "🕵️ ВАШ ХІД"
-		infoLabel.Text = "Оберіть дослідника для переміщення"
+		infoLabel.Text = string.format(
+			"Ваш хід!\nЗалишилось дій: %d/%d\nОберіть дослідника для переміщення",
+			data.remainingActions or 3,
+			data.maxActions or 3
+		)
 	elseif data.phase == "main_game_waiting" then
 		-- Ждем своего хода
 		isGamePhaseActive = true
 		isMyTurn = false
-		print("⏳ Чекайте свій хід...")
+		print("⏳ Чекайте свій хід... Зараз ходить інший гравець")
 		selectionFrame.Visible = false
+
+		-- Очищаем подсветку
+		if currentHighlight then
+			currentHighlight:Destroy()
+			currentHighlight = nil
+		end
+		if selectionHighlight then
+			selectionHighlight:Destroy()
+			selectionHighlight = nil
+		end
+		clearTileHighlights()
+		currentHoveredExplorer = nil
+		selectedExplorer = nil
 	elseif data.phase == "placement" or data.phase == "placement_complete" or data.phase == "boats_placement" then
 		-- Фазы размещения - отключаем подсветку
 		isGamePhaseActive = false
@@ -628,6 +679,28 @@ UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
 				updateExplorerPosition(obj, data.q, data.r)
 				break
 			end
+		end
+	end
+end)
+
+UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
+	if data.type == "MainGameTurn" then
+		-- Обновляем информацию о ходе
+		local currentPlayerName = data.currentPlayer or ""
+		isMyTurn = (currentPlayerName == player.Name)
+
+		if isMyTurn then
+			print("🎮 Ваш хід! Залишилось дій:", data.remainingActions or 0)
+			selectionFrame.Visible = true
+			infoLabel.Text = string.format(
+				"🎯 Ваш хід!\n⏱️ Залишилось дій: %d/%d\n🖱️ Оберіть дослідника для переміщення",
+				data.remainingActions or 0,
+				data.maxActions or 3
+			)
+		else
+			print("⏳ Зараз ходить:", currentPlayerName)
+			print("  Ваше ім'я:", player.Name)
+			selectionFrame.Visible = false
 		end
 	end
 end)

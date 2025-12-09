@@ -179,9 +179,9 @@ function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
 	)
 
 	-- Создаем исследователя
-	local explorerId = #playerData.explorers + 1
+	local globalExplorerId = #self:getAllExplorers() + 1
 	local explorer = {
-		id = explorerId,
+		id = globalExplorerId,
 		player = player,
 		treasureValue = treasureValue,
 		q = q,
@@ -196,7 +196,7 @@ function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
 	self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
 		type = "ExplorerPlaced",
 		playerName = player.Name,
-		explorerId = explorerId,
+		explorerId = globalExplorerId,
 		explorerCount = playerData.explorersPlaced,
 		maxExplorers = playerData.maxExplorers,
 		q = q,
@@ -220,6 +220,18 @@ function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
 	self:moveToNextPlayer()
 
 	return true
+end
+
+function PlacementPhase:getAllExplorers()
+	local allExplorers = {}
+	for _, playerData in pairs(self.playersData) do
+		if playerData.explorers then
+			for _, explorer in ipairs(playerData.explorers) do
+				table.insert(allExplorers, explorer)
+			end
+		end
+	end
+	return allExplorers
 end
 
 function PlacementPhase:createExplorerVisual(player, treasureValue, q, r, explorerId)
@@ -750,12 +762,33 @@ function PlacementPhase:endBoatsPhase()
 
 	print("🚤 Фаза размещения лодок завершена!")
 
+	-- Сохраняем данные игроков перед передачей
+	print("💾 Сохраняем данные игроков для основной игры:")
+	for player, playerData in pairs(self.playersData) do
+		print("  Игрок", player.Name, "исследователей:", #playerData.explorers)
+		for i, explorer in ipairs(playerData.explorers) do
+			explorer.id = explorer.id or i
+			print(
+				"    Исследователь",
+				explorer.id,
+				"Q=",
+				explorer.q,
+				"R=",
+				explorer.r,
+				"сокровища:",
+				explorer.treasureValue
+			)
+		end
+	end
+
 	-- Уведомляем всех клиентов о начале основной игры
 	self.networkManager:getGameStartEvent():FireAllClients({
 		phase = "main_game_active",
 		message = "🎮 ОСНОВНА ГРА ПОЧИНАЄТЬСЯ!",
 		countdown = 3,
 	})
+
+	-- Задержка перед началом основной фазы
 
 	if self.mainGame and self.mainGame.startMainGamePhase then
 		self.mainGame:startMainGamePhase()
@@ -796,11 +829,9 @@ function PlacementPhase:startMainGame()
 		countdown = 3,
 	})
 
-	task.delay(3, function()
-		if self.mainGame and self.mainGame.startMainGamePhase then
-			self.mainGame:startMainGamePhase()
-		end
-	end)
+	if self.mainGame and self.mainGame.startMainGamePhase then
+		self.mainGame:startMainGamePhase()
+	end
 end
 
 function PlacementPhase:startMainGamePlayerTurn()
