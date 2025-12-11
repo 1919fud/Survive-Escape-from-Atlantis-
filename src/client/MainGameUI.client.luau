@@ -64,22 +64,37 @@ UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
 		if data.currentPlayer == player.Name then
 			turnLabel.Text = "🎮 ВАШ ХІД!"
 			turnLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+			actionsLabel.Text = string.format(
+				"💰 Монет залишилось: %d/%d",
+				data.remainingActions or 3,
+				data.maxActions or 3
+			)
 		else
 			turnLabel.Text = "Ходить: " .. data.currentPlayer
 			turnLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-		end
-
-		if data.remainingActions then
-			actionsLabel.Text =
-				string.format("Дій залишилось: %d/%d", data.remainingActions, data.maxActions or 3)
+			actionsLabel.Text = "⏳ Чекайте свій хід..."
 		end
 
 		if data.turnInfo and data.turnInfo.currentRound then
 			roundLabel.Text = "Раунд: " .. data.turnInfo.currentRound
 		end
-	elseif data.type == "TurnEnded" then
-		turnLabel.Text = "Хід завершено: " .. data.previousPlayer
-		actionsLabel.Text = "Очікування наступного ходу..."
+	elseif data.type == "ExplorerMoved" then
+		if player.Name == data.playerName then
+			actionsLabel.Text =
+				string.format("Переміщено! Витрачено: %d монет", data.moveCost or 1)
+
+			-- Оновлюємо через 2 секунди
+			task.delay(2, function()
+				if actionsLabel then
+					local remaining = data.remainingActions or 0
+					if remaining > 0 then
+						actionsLabel.Text = string.format("💰 Монет залишилось: %d/3", remaining)
+					else
+						actionsLabel.Text = "⏳ Очікування наступного ходу..."
+					end
+				end
+			end)
+		end
 	end
 end)
 

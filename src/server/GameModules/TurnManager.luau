@@ -11,7 +11,7 @@ function TurnManager.new()
 	self.placementCompleted = {} -- Трекаємо хто завершив розміщення
 
 	self.gamePhase = "placement" -- placement, main_game
-	self.turnActionsLeft = 3
+	self.maxActions = 3
 	self.PlayerActionsUsed = {}
 	return self
 end
@@ -109,18 +109,28 @@ function TurnManager:useAction(player)
 
 	local actionsUsed = self.playerActionsUsed[player] or 0
 
-	if actionsUsed >= self.turnActionsLeft then
-		warn("❌ Усі дії використані!")
+	if actionsUsed >= self.maxActions then
+		warn("❌ Усі монети використані!")
 		return false
 	end
 
 	self.playerActionsUsed[player] = actionsUsed + 1
 
-	-- Перевіряємо чи закінчились дії
-	if self.playerActionsUsed[player] >= self.turnActionsLeft then
-		print("✅ Гравець", player.Name, "використав усі дії. Кінець ходу.")
+	-- Перевіряємо чи закінчились монети
+	if self.playerActionsUsed[player] >= self.maxActions then
+		print("✅ Гравець", player.Name, "використав усі монети. Кінець ходу.")
 	end
 
+	return true
+end
+
+function TurnManager:useMultipleActions(player, count)
+	-- Використати кілька дій одразу
+	for i = 1, count do
+		if not self:useAction(player) then
+			return false
+		end
+	end
 	return true
 end
 
@@ -130,7 +140,7 @@ function TurnManager:getRemainingActions(player)
 	end
 
 	local actionsUsed = self.playerActionsUsed[player] or 0
-	return math.max(0, self.turnActionsLeft - actionsUsed)
+	return math.max(0, self.maxActions - actionsUsed)
 end
 
 -- Перевіряємо, чи всі гравці завершили розміщення

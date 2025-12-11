@@ -132,6 +132,93 @@ function AtlantisGame:onPlayerReadyChanged(player, isReady)
 	self:checkGameStartCondition()
 end
 
+function AtlantisGame:getAvailableMovementTiles(explorer, maxSteps)
+	-- Функція для отримання доступних тайлів для руху з обмеженням по кроках
+	print("🗺️ [СЕРВЕР] Пошук доступних тайлів для дослідника", explorer.id)
+	print("  Початкова позиція: Q=", explorer.q, "R=", explorer.r)
+	print("  Максимум кроків:", maxSteps)
+
+	local visited = {}
+	local availableTiles = {}
+	local q = explorer.q
+	local r = explorer.r
+
+	-- Система для BFS (пошук в ширину)
+	local queue = { { q = q, r = r, steps = 0 } }
+	visited[self.mapManager:getCoordKey(q, r)] = true
+
+	while #queue > 0 do
+		local current = table.remove(queue, 1)
+		local currentKey = self.mapManager:getCoordKey(current.q, current.r)
+
+		-- Якщо не початкова позиція і не перевищили ліміт кроків
+		if current.steps > 0 and current.steps <= maxSteps then
+			-- Перевіряємо чи тайл існує
+			local tile = self.mapManager:getTileAtPosition(current.q, current.r)
+			if tile then
+				-- Перевіряємо чи на тайлі немає іншого дослідника
+				local hasOtherExplorer = false
+				for _, playerData in pairs(self.players) do
+					if playerData.explorers then
+						for _, otherExplorer in ipairs(playerData.explorers) do
+							if otherExplorer.q == current.q and otherExplorer.r == current.r then
+								if otherExplorer.id ~= explorer.id then -- Ігноруємо самого себе
+									hasOtherExplorer = true
+									break
+								end
+							end
+						end
+					end
+					if hasOtherExplorer then
+						break
+					end
+				end
+
+				if not hasOtherExplorer then
+					table.insert(availableTiles, {
+						q = current.q,
+						r = current.r,
+						steps = current.steps,
+						cost = current.steps, -- Ціна = кількість кроків
+						coordKey = currentKey,
+						tile = tile,
+					})
+				end
+			end
+		end
+
+		-- Якщо ще можемо робити кроки
+		if current.steps < maxSteps then
+			local directions = {
+				{ 1, 0 },
+				{ 1, -1 },
+				{ 0, -1 },
+				{ -1, 0 },
+				{ -1, 1 },
+				{ 0, 1 },
+			}
+
+			for _, dir in ipairs(directions) do
+				local nq = current.q + dir[1]
+				local nr = current.r + dir[2]
+				local neighborKey = self.mapManager:getCoordKey(nq, nr)
+
+				if not visited[neighborKey] then
+					visited[neighborKey] = true
+					table.insert(queue, {
+						q = nq,
+						r = nr,
+						steps = current.steps + 1,
+					})
+				end
+			end
+		end
+	end
+
+	print("📍 [СЕРВЕР] Знайдено доступних тайлів:", #availableTiles)
+	return availableTiles
+end
+
 -- ДОБАВЛЕНО: Обработка размещения исследователя
 function AtlantisGame:onPlayerPlaceExplorer(player, treasureValue, q, r)
 	if not self.isGameActive then
@@ -425,7 +512,7 @@ end
 function AtlantisGame:onPlayerSelectExplorer(player, explorerId)
 	print("🎯 [СЕРВЕР] onPlayerSelectExplorer викликано")
 	print("  Гравець:", player.Name)
-	print("  Запитує explorerId:", explorerId, "тип:", type(explorerId))
+	print("  Запитує explorerId:", explorerId)
 
 	if not self.isGameActive then
 		print("❌ [СЕРВЕР] Гра не активна!")
@@ -444,6 +531,13 @@ function AtlantisGame:onPlayerSelectExplorer(player, explorerId)
 		return false
 	end
 
+	-- Перевіряємо скільки дій залишилось
+	local remainingActions = self.turnManager:getRemainingActions(player)
+	if remainingActions <= 0 then
+		print("❌ [СЕРВЕР] Немає доступних дій!")
+		return false
+	end
+
 	-- Знаходимо дослідника
 	local playerData = self.players[player]
 	if not playerData then
@@ -455,36 +549,16 @@ function AtlantisGame:onPlayerSelectExplorer(player, explorerId)
 
 	local explorer = nil
 	if playerData.explorers then
-		-- Преобразуем explorerId для сравнения
 		explorerId = tonumber(explorerId)
 		if not explorerId then
 			print("❌ [СЕРВЕР] Неправильний формат explorerId")
 			return false
 		end
 
-		for i, exp in ipairs(playerData.explorers) do
-			print(
-				"  Перевіряємо дослідника:",
-				i,
-				"ID:",
-				exp.id,
-				"тип:",
-				type(exp.id),
-				"власник:",
-				exp.player and exp.player.Name
-			)
-
-			if exp.id == explorerId then
-				-- ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: принадлежит ли исследователь этому игроку
-				if exp.player == player then
-					explorer = exp
-					print("  ✅ Знайдено дослідника гравця:", player.Name)
-				else
-					print("❌ [СЕРВЕР] Дослідник належить іншому гравцю!")
-					print("    Очікуваний гравець:", player.Name)
-					print("    Фактичний гравець:", exp.player and exp.player.Name)
-					return false
-				end
+		for _, exp in ipairs(playerData.explorers) do
+			if exp.id == explorerId and exp.player == player then
+				explorer = exp
+				print("  ✅ Знайдено дослідника гравця:", player.Name)
 				break
 			end
 		end
@@ -494,25 +568,6 @@ function AtlantisGame:onPlayerSelectExplorer(player, explorerId)
 		print(
 			"❌ [СЕРВЕР] Дослідник не знайдений або не належить гравцю!"
 		)
-		-- Покажем всех исследователей для отладки
-		if playerData.explorers then
-			for i, exp in ipairs(playerData.explorers) do
-				print(
-					"  Дослідник",
-					i,
-					"ID:",
-					exp.id,
-					"Q:",
-					exp.q,
-					"R:",
-					exp.r,
-					"Treasure:",
-					exp.treasureValue,
-					"Player:",
-					exp.player and exp.player.Name
-				)
-			end
-		end
 		return false
 	end
 
@@ -525,15 +580,29 @@ function AtlantisGame:onPlayerSelectExplorer(player, explorerId)
 		explorer.r
 	)
 
-	-- Знаходимо доступні тайли для руху
-	local availableTiles = self.mapManager:getNeighbors(explorer.q, explorer.r)
+	-- Знаходимо доступні тайли для руху (максимум 3 кроки)
+	local maxSteps = remainingActions -- Максимум кроків = залишок дій
+	local availableTiles = self:getAvailableMovementTiles(explorer, maxSteps)
+
 	print("📍 [СЕРВЕР] Знайдено доступних тайлів:", #availableTiles)
 
-	-- Надсилаємо клієнту список доступних тайлів
+	-- Групуємо тайли за вартістю
+	local tilesByCost = {}
+	for _, tile in ipairs(availableTiles) do
+		if not tilesByCost[tile.cost] then
+			tilesByCost[tile.cost] = {}
+		end
+		table.insert(tilesByCost[tile.cost], tile)
+	end
+
+	-- Відправляємо клієнту список доступних тайлів з інформацією про вартість
 	self.networkManager:getHighlightTilesEvent():FireClient(player, {
 		type = "movement",
 		explorerId = explorerId,
 		availableTiles = availableTiles,
+		tilesByCost = tilesByCost,
+		remainingActions = remainingActions,
+		maxSteps = maxSteps,
 	})
 
 	print("✅ [СЕРВЕР] Подія HighlightTilesEvent відправлена клієнту")
@@ -555,12 +624,6 @@ function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
 		return false
 	end
 
-	-- Використовуємо дію
-	if not self.turnManager:useAction(player) then
-		print("❌ [СЕРВЕР] Немає доступних дій!")
-		return false
-	end
-
 	-- Знаходимо дослідника с проверкой владельца
 	local playerData = self.players[player]
 	if not playerData then
@@ -576,21 +639,48 @@ function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
 
 	local explorer = nil
 	for _, exp in ipairs(playerData.explorers) do
-		if exp.id == explorerId then
-			-- Проверяем владельца
-			if exp.player == player then
-				explorer = exp
-				break
-			else
-				print("❌ [СЕРВЕР] Цей дослідник не належить гравцю!")
-				return false
-			end
+		if exp.id == explorerId and exp.player == player then
+			explorer = exp
+			break
 		end
 	end
 
 	if not explorer then
 		print("❌ [СЕРВЕР] Дослідник не знайдений у гравця")
 		return false
+	end
+
+	-- Знаходимо інформацію про переміщення
+	local maxSteps = self.turnManager:getRemainingActions(player)
+	local availableTiles = self:getAvailableMovementTiles(explorer, maxSteps)
+
+	local moveCost = nil
+	local targetTileData = nil
+
+	-- Знаходимо тайл серед доступних і отримуємо його вартість
+	for _, tileData in ipairs(availableTiles) do
+		if tileData.q == q and tileData.r == r then
+			moveCost = tileData.cost
+			targetTileData = tileData
+			break
+		end
+	end
+
+	if not moveCost then
+		print("❌ [СЕРВЕР] Цей тайл недоступний для переміщення!")
+		return false
+	end
+
+	print("💰 [СЕРВЕР] Вартість переміщення:", moveCost, "монет(и)")
+
+	-- Використовуємо дії
+	local actionsUsed = 0
+	while actionsUsed < moveCost do
+		if not self.turnManager:useAction(player) then
+			print("❌ [СЕРВЕР] Недостатньо дій!")
+			return false
+		end
+		actionsUsed = actionsUsed + 1
 	end
 
 	print(
@@ -601,7 +691,10 @@ function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
 		"на Q=",
 		q,
 		"R=",
-		r
+		r,
+		"вартістю",
+		moveCost,
+		"монет"
 	)
 
 	-- Обновляем позицию
@@ -614,7 +707,9 @@ function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
 		explorerId = explorerId,
 		q = q,
 		r = r,
-		playerName = player.Name, -- Важно отправлять имя владельца
+		playerName = player.Name,
+		moveCost = moveCost,
+		remainingActions = self.turnManager:getRemainingActions(player),
 	})
 
 	-- Перевіряємо чи закінчились дії
@@ -624,6 +719,11 @@ function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
 			"🎯 [СЕРВЕР] Усі дії використані, перехід до наступного гравця"
 		)
 		self:endPlayerTurn(player)
+	else
+		-- Скидаємо вибір дослідника, щоб гравець міг обрати іншого
+		self.networkManager:getHighlightTilesEvent():FireClient(player, {
+			type = "clear",
+		})
 	end
 
 	return true

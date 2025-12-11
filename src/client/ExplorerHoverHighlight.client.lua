@@ -279,6 +279,13 @@ end
 local function clearTileHighlights()
 	for _, highlight in ipairs(tileHighlights) do
 		if highlight and highlight.Parent then
+			-- Видаляємо BillboardGui з вартістю
+			local tile = highlight.Parent
+			local billboard = tile:FindFirstChild("CostDisplay")
+			if billboard then
+				billboard:Destroy()
+			end
+
 			highlight:Destroy()
 		end
 	end
@@ -286,31 +293,102 @@ local function clearTileHighlights()
 	isMovementMode = false
 end
 
-local function highlightAvailableTiles(tiles)
-	-- Очищаємо попередні підсвічування
+local function highlightAvailableTiles(data)
 	clearTileHighlights()
 
-	if not tiles then
+	if not data or not data.availableTiles then
 		return
 	end
 
-	for _, tileData in ipairs(tiles) do
+	-- Створюємо різні кольори для різних вартостей
+	local colorByCost = {
+		[1] = Color3.fromRGB(0, 255, 0), -- Зелений для 1 кроку
+		[2] = Color3.fromRGB(255, 255, 0), -- Жовтий для 2 кроків
+		[3] = Color3.fromRGB(255, 165, 0), -- Помаранчевий для 3 кроків
+	}
+
+	local outlineColorByCost = {
+		[1] = Color3.fromRGB(0, 200, 0),
+		[2] = Color3.fromRGB(200, 200, 0),
+		[3] = Color3.fromRGB(200, 100, 0),
+	}
+
+	for _, tileData in ipairs(data.availableTiles) do
 		local tile = tileData.tile and tileData.tile.meshPart
 		if tile then
 			local highlight = Instance.new("Highlight")
 			highlight.Name = "AvailableTileHighlight"
-			highlight.FillColor = Color3.fromRGB(0, 255, 0) -- Зелений для доступних
-			highlight.OutlineColor = Color3.fromRGB(0, 200, 0)
+
+			local cost = tileData.cost or 1
+			highlight.FillColor = colorByCost[cost] or Color3.fromRGB(0, 255, 0)
+			highlight.OutlineColor = outlineColorByCost[cost] or Color3.fromRGB(0, 200, 0)
 			highlight.FillTransparency = 0.7
 			highlight.OutlineTransparency = 0
-			highlight.Parent = tile
 
+			-- Додаємо BillboardGui з інформацією про вартість
+			local billboard = Instance.new("BillboardGui")
+			billboard.Name = "CostDisplay"
+			billboard.Size = UDim2.new(2, 0, 2, 0)
+			billboard.StudsOffset = Vector3.new(0, 3, 0)
+			billboard.AlwaysOnTop = true
+			billboard.Adornee = tile
+			billboard.Parent = tile
+
+			local costLabel = Instance.new("TextLabel")
+			costLabel.Name = "CostLabel"
+			costLabel.Size = UDim2.new(1, 0, 1, 0)
+			costLabel.BackgroundTransparency = 1
+			costLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+			costLabel.Text = tostring(cost)
+			costLabel.TextScaled = true
+			costLabel.Font = Enum.Font.GothamBold
+			costLabel.TextStrokeTransparency = 0
+			costLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+			costLabel.Parent = billboard
+
+			-- Зберігаємо інформацію про вартість
+			highlight:SetAttribute("Cost", cost)
+			highlight:SetAttribute("Q", tileData.q)
+			highlight:SetAttribute("R", tileData.r)
+
+			highlight.Parent = tile
 			table.insert(tileHighlights, highlight)
 		end
 	end
 
 	isMovementMode = true
 	print("📍 Показано доступні тайли для переміщення")
+
+	-- Оновлюємо UI з інформацією
+	if data.remainingActions then
+		infoLabel.Text = string.format(
+			"📍 Дослідник #%d обраний\n"
+				.. "💰 Залишилось монет: %d\n"
+				.. "🟢 1 крок = 1 монета\n"
+				.. "🟡 2 кроки = 2 монети\n"
+				.. "🟠 3 кроки = 3 монети\n"
+				.. "🖱️ Клікніть на тайл для переміщення",
+			selectedExplorer:GetAttribute("ExplorerId"),
+			data.remainingActions
+		)
+	end
+end
+
+local function getHighlightedTileUnderCursor()
+	local target = mouse.Target
+	if target then
+		-- Перевіряємо чи це підсвічений тайл
+		local highlight = target:FindFirstChild("AvailableTileHighlight")
+		if highlight then
+			return {
+				tile = target,
+				cost = highlight:GetAttribute("Cost") or 1,
+				q = highlight:GetAttribute("Q"),
+				r = highlight:GetAttribute("R"),
+			}
+		end
+	end
+	return nil
 end
 
 -- Функція для очищення підсвічування тайлів
@@ -376,25 +454,28 @@ local function onExplorerClick(explorer)
 	end
 end
 
-local function moveExplorerToTile(tile)
+local function moveExplorerToTile(tileData)
 	if not selectedExplorer or not isMovementMode or not isMyTurn then
 		print("❌ Немає обраного дослідника або не режим переміщення")
 		return
 	end
 
 	local explorerId = selectedExplorer:GetAttribute("ExplorerId")
-	local q = tile:GetAttribute("Q") or tile:GetAttribute("q")
-	local r = tile:GetAttribute("R") or tile:GetAttribute("r")
 
-	if not q or not r then
-		print("❌ У тайла немає координат Q, R")
-		return
-	end
-
-	print("🚶 Спроба перемістити дослідника", explorerId, "на Q=", q, "R=", r)
+	print(
+		"🚶 Спроба перемістити дослідника",
+		explorerId,
+		"на Q=",
+		tileData.q,
+		"R=",
+		tileData.r,
+		"вартістю",
+		tileData.cost,
+		"монет"
+	)
 
 	-- Відправляємо запит на сервер
-	MoveExplorerEvent:FireServer(explorerId, q, r)
+	MoveExplorerEvent:FireServer(explorerId, tileData.q, tileData.r)
 
 	-- Очищаємо підсвічування
 	clearTileHighlights()
@@ -530,7 +611,9 @@ end)
 HighlightTilesEvent.OnClientEvent:Connect(function(data)
 	if data and data.type == "movement" then
 		print("📍 Отримано доступні тайли для переміщення")
-		highlightAvailableTiles(data.availableTiles)
+		highlightAvailableTiles(data)
+	elseif data and data.type == "clear" then
+		clearTileHighlights()
 	end
 end)
 
@@ -569,25 +652,16 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 			if explorer then
 				onExplorerClick(explorer)
 			else
-				-- Перевіряємо, чи це тайл землі
-				local tile = getTileUnderCursor()
-				if tile and selectedExplorer and isMovementMode then
+				-- Перевіряємо, чи це підсвічений тайл
+				local highlightedTile = getHighlightedTileUnderCursor()
+				if highlightedTile and selectedExplorer and isMovementMode then
 					-- Спроба перемістити дослідника на цей тайл
-					moveExplorerToTile(tile)
+					moveExplorerToTile(highlightedTile)
 				elseif selectedExplorer then
-					-- Клік не по досліднику і не по доступному тайлу, але є обраний дослідник
-					-- Не скасовуємо автоматично, лише через кнопку або клік на того ж дослідника
 					print(
 						"⚠️ Є обраний дослідник. Скасуйте через UI або клікніть на того ж дослідника"
 					)
 				end
-			end
-		else
-			-- Клік у пустоту
-			if selectedExplorer then
-				print(
-					"⚠️ Є обраний дослідник. Скасуйте через UI або клікніть на того ж дослідника"
-				)
 			end
 		end
 	end
