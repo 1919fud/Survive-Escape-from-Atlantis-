@@ -133,7 +133,6 @@ function AtlantisGame:onPlayerReadyChanged(player, isReady)
 end
 
 function AtlantisGame:getAvailableMovementTiles(explorer, maxSteps)
-	-- Функція для отримання доступних тайлів для руху з обмеженням по кроках
 	print("🗺️ [СЕРВЕР] Пошук доступних тайлів для дослідника", explorer.id)
 	print("  Початкова позиція: Q=", explorer.q, "R=", explorer.r)
 	print("  Максимум кроків:", maxSteps)
@@ -143,7 +142,6 @@ function AtlantisGame:getAvailableMovementTiles(explorer, maxSteps)
 	local q = explorer.q
 	local r = explorer.r
 
-	-- Система для BFS (пошук в ширину)
 	local queue = { { q = q, r = r, steps = 0 } }
 	visited[self.mapManager:getCoordKey(q, r)] = true
 
@@ -153,7 +151,7 @@ function AtlantisGame:getAvailableMovementTiles(explorer, maxSteps)
 
 		-- Якщо не початкова позиція і не перевищили ліміт кроків
 		if current.steps > 0 and current.steps <= maxSteps then
-			-- Перевіряємо чи тайл існує
+			-- Отримуємо тайл (перевага островам)
 			local tile = self.mapManager:getTileAtPosition(current.q, current.r)
 			if tile then
 				-- Перевіряємо чи на тайлі немає іншого дослідника
@@ -179,9 +177,11 @@ function AtlantisGame:getAvailableMovementTiles(explorer, maxSteps)
 						q = current.q,
 						r = current.r,
 						steps = current.steps,
-						cost = current.steps, -- Ціна = кількість кроків
+						cost = current.steps,
 						coordKey = currentKey,
 						tile = tile,
+						isWater = tile.isWater or false,
+						isLand = tile.isLand or not tile.isWater,
 					})
 				end
 			end
@@ -216,6 +216,25 @@ function AtlantisGame:getAvailableMovementTiles(explorer, maxSteps)
 	end
 
 	print("📍 [СЕРВЕР] Знайдено доступних тайлів:", #availableTiles)
+
+	-- Логування знайдених тайлів
+	for _, tileData in ipairs(availableTiles) do
+		if tileData.isWater then
+			print("    💧 Q=", tileData.q, "R=", tileData.r, "кроків:", tileData.steps)
+		else
+			print(
+				"    🌍 Q=",
+				tileData.q,
+				"R=",
+				tileData.r,
+				"тип:",
+				tileData.tile.type or "Land",
+				"кроків:",
+				tileData.steps
+			)
+		end
+	end
+
 	return availableTiles
 end
 

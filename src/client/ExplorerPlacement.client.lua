@@ -110,18 +110,19 @@ end
 
 -- Создание визуала исследователя
 local function createExplorerVisual(playerName, treasureValue, q, r, explorerId)
-	-- Ищем шаблон исследователя
+	-- Інем шаблон дослідника
 	local explorerTemplate = ReplicatedStorage:FindFirstChild("Explorer")
 	if not explorerTemplate then
-		warn("❌ Не найден шаблон Explorer в ReplicatedStorage")
+		warn("❌ Не знайдений шаблон Explorer в ReplicatedStorage")
 		return
 	end
 
-	-- Ищем тайл по координатам
+	-- Шукаємо тайл за координатами
 	local map = workspace:WaitForChild("Map")
 	local targetTile = nil
+	local isWaterTile = false
 
-	-- Ищем тайл с нужными координатами
+	-- Спочатку шукаємо тайл острова
 	for _, obj in ipairs(map:GetDescendants()) do
 		if obj:IsA("MeshPart") then
 			local tileQ = obj:GetAttribute("Q") or obj:GetAttribute("q")
@@ -130,30 +131,52 @@ local function createExplorerVisual(playerName, treasureValue, q, r, explorerId)
 
 			if tileQ == q and tileR == r and isLand == true then
 				targetTile = obj
+				isWaterTile = false
 				break
 			end
 		end
 	end
 
+	-- Якщо не знайшли острів, шукаємо воду
 	if not targetTile then
-		warn("❌ Не найден тайл для отображения исследователя: Q=", q, "R=", r)
+		for _, obj in ipairs(map:GetDescendants()) do
+			if obj:IsA("MeshPart") then
+				local tileQ = obj:GetAttribute("Q") or obj:GetAttribute("q")
+				local tileR = obj:GetAttribute("R") or obj:GetAttribute("r")
+				local isWater = obj:GetAttribute("IsWater") or obj:GetAttribute("Placeboat")
+
+				if tileQ == q and tileR == r and isWater then
+					targetTile = obj
+					isWaterTile = true
+					break
+				end
+			end
+		end
+	end
+
+	if not targetTile then
+		warn(
+			"❌ Не знайдений тайл для відображення дослідника: Q=",
+			q,
+			"R=",
+			r
+		)
 		return
 	end
 
-	-- Проверяем, не существует ли уже исследователь на этом тайле
+	-- Перевіряємо, чи не існує вже дослідник на цьому тайлі
 	local existingExplorer = findExistingExplorer(q, r)
 	if existingExplorer then
 		warn("❌ На цьому тайлі вже є дослідник: Q=", q, "R=", r)
 		return
 	end
 
-	-- Создаем исследователя
+	-- Створюємо дослідника
 	local explorer = explorerTemplate:Clone()
 	explorer.Name = "Explorer_" .. playerName .. "_" .. treasureValue
 
-	-- Убеждаемся, что у модели есть PrimaryPart
+	-- Переконуємося, що у моделі є PrimaryPart
 	if not explorer.PrimaryPart then
-		-- Если нет PrimaryPart, ищем первую часть
 		for _, part in ipairs(explorer:GetDescendants()) do
 			if part:IsA("BasePart") then
 				explorer.PrimaryPart = part
@@ -163,52 +186,76 @@ local function createExplorerVisual(playerName, treasureValue, q, r, explorerId)
 	end
 
 	if not explorer.PrimaryPart then
-		warn("❌ У модели исследователя нет PrimaryPart и не найдены части")
+		warn("❌ У моделі дослідника немає PrimaryPart і не знайдені частини")
 		explorer:Destroy()
 		return
 	end
-	-- Позиционируем на тайле
+
+	-- Позиціонуємо на тайлі
 	local tilePosition = targetTile.Position
-	local heightOffset = 0
-	local targetTileType = targetTile:GetAttribute("TileType")
-	print(targetTileType)
-	if targetTileType == "Beach" then
-		heightOffset = 6.062
-	elseif targetTileType == "Forest" then
-		heightOffset = 7.037
-	elseif targetTileType == "Mountain" then
-		heightOffset = 8.007
+
+	if isWaterTile then
+		-- Позиціонування на воді
+		local heightOffset = 2.5
+		local explorerPosition = Vector3.new(tilePosition.X, heightOffset, tilePosition.Z)
+		local rotatedCFrame = CFrame.new(explorerPosition) * CFrame.Angles(0, math.rad(90), 0)
+		explorer:SetPrimaryPartCFrame(rotatedCFrame)
+		print("🌊 Дослідник створений на ВОДІ")
+	else
+		-- Позиціонування на суші
+		local heightOffset = 0
+		local targetTileType = targetTile:GetAttribute("TileType")
+
+		if targetTileType == "Beach" then
+			heightOffset = 6.062
+		elseif targetTileType == "Forest" then
+			heightOffset = 7.037
+		elseif targetTileType == "Mountain" then
+			heightOffset = 8.007
+		else
+			heightOffset = 6 -- За замовчуванням
+		end
+
+		local explorerPosition = Vector3.new(tilePosition.X, heightOffset, tilePosition.Z)
+		local rotatedCFrame = CFrame.new(explorerPosition) * CFrame.Angles(0, math.rad(90), 0)
+		explorer:SetPrimaryPartCFrame(rotatedCFrame)
+		print("🌍 Дослідник створений на суші, тип:", targetTileType)
 	end
 
-	local explorerPosition = Vector3.new(tilePosition.X, heightOffset, tilePosition.Z)
-	local rotatedCFrame = CFrame.new(explorerPosition) * CFrame.Angles(0, math.rad(90), 0)
-	explorer:SetPrimaryPartCFrame(rotatedCFrame)
-
-	-- Устанавливаем цвет в зависимости от игрока
+	-- Встановлюємо колір залежно від гравця
 	local playerColor = getPlayerVisualColor(playerName)
 
-	-- Применяем цвет ко всем частям модели
+	-- Застосовуємо колір до всіх частин моделі
 	for _, part in ipairs(explorer:GetDescendants()) do
 		if part:IsA("BasePart") then
 			part.BrickColor = playerColor
 		end
 	end
 
-	-- Добавляем атрибуты
+	-- Додаємо атрибути
 	explorer:SetAttribute("Player", playerName)
 	explorer:SetAttribute("TreasureValue", treasureValue)
 	explorer:SetAttribute("ExplorerId", explorerId)
 	explorer:SetAttribute("Q", q)
 	explorer:SetAttribute("R", r)
 	explorer:SetAttribute("IsExplorer", true)
+	explorer:SetAttribute("IsOnWater", isWaterTile)
 
-	-- Помещаем в workspace
+	-- Поміщаємо в workspace
 	explorer.Parent = workspace
 
-	-- Добавляем эффект появления
+	-- Додаємо ефект появи
 	spawnExplorerAppearanceEffect(explorer)
 
-	print("👤 Создан визуал исследователя для", playerName, "на Q=", q, "R=", r)
+	print(
+		"👤 Створений візуал дослідника для",
+		playerName,
+		"на Q=",
+		q,
+		"R=",
+		r,
+		isWaterTile and "(вода)" or "(суша)"
+	)
 end
 
 -- Создаем UI для выбора исследователей
@@ -362,8 +409,16 @@ local function getTileUnderCursor()
 	local mouse = player:GetMouse()
 	local target = mouse.Target
 
-	if target and (target:GetAttribute("IsLand") or target:GetAttribute("Placeboat")) then
-		return target
+	if target then
+		-- Перевіряємо всі можливі типи тайлів
+		local isLand = target:GetAttribute("IsLand") == true
+		local isWater = target:GetAttribute("IsWater") == true or target:GetAttribute("Placeboat") == true
+		local hasCoords = (target:GetAttribute("Q") ~= nil or target:GetAttribute("q") ~= nil)
+			and (target:GetAttribute("R") ~= nil or target:GetAttribute("r") ~= nil)
+
+		if hasCoords and (isLand or isWater) then
+			return target
+		end
 	end
 
 	return nil

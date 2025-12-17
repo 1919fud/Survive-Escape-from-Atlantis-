@@ -204,7 +204,23 @@ end
 
 function MapManager:getTileAtPosition(q, r)
 	local coordKey = self:getCoordKey(q, r)
-	return self.landTiles[coordKey]
+
+	-- Перевага віддається островам
+	if self.landTiles[coordKey] then
+		return self.landTiles[coordKey]
+	elseif self.waterTiles[coordKey] then
+		return {
+			meshPart = self.waterTiles[coordKey],
+			type = "Water",
+			q = q,
+			r = r,
+			coordKey = coordKey,
+			isWater = true,
+			isLand = false,
+		}
+	end
+
+	return nil
 end
 
 function MapManager:getNeighbors(q, r)
@@ -228,18 +244,43 @@ function MapManager:getNeighbors(q, r)
 
 		print("  🔍 Перевіряємо координати: Q=", nq, "R=", nr, "Ключ:", coordKey)
 
+		-- Спочатку шукаємо тайл острова (перевага)
+		local neighborTile = nil
+
 		if self.landTiles[coordKey] then
-			print("  ✅ Знайдено сусіда!")
+			-- Знайшли острів
+			neighborTile = self.landTiles[coordKey]
+			print("  ✅ Знайдено острів-сусіда!")
+		elseif self.waterTiles[coordKey] then
+			-- Знайшли воду
+			neighborTile = { meshPart = self.waterTiles[coordKey], isWater = true }
+			print("  💧 Знайдено водний тайл-сусід")
+		end
+
+		if neighborTile then
 			table.insert(neighbors, {
 				q = nq,
 				r = nr,
 				coordKey = coordKey,
-				tile = self.landTiles[coordKey],
+				tile = neighborTile,
+				isWater = neighborTile.isWater or false,
+				isLand = not neighborTile.isWater,
+				tileType = neighborTile.type or "Water",
 			})
 		end
 	end
 
 	print("📍 [СЕРВЕР] Знайдено сусідів:", #neighbors)
+
+	-- Додаткова інформація про знайдені сусіди
+	for _, neighbor in ipairs(neighbors) do
+		if neighbor.isWater then
+			print("    💧 Q=", neighbor.q, "R=", neighbor.r, "- Вода")
+		else
+			print("    🌍 Q=", neighbor.q, "R=", neighbor.r, "-", neighbor.tileType)
+		end
+	end
+
 	return neighbors
 end
 
