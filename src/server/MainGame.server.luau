@@ -619,6 +619,22 @@ function AtlantisGame:onPlayerSelectExplorer(player, explorerId)
 			if exp.id == explorerId and exp.player == player then
 				explorer = exp
 				print("  ✅ Знайдено дослідника гравця:", player.Name)
+				-- ВИПРАВЛЕННЯ: Перевіряємо стан дослідника САМЕ ТУТ
+				if explorer.hasEnteredWaterThisTurn then
+					print(
+						"❌ [СЕРВЕР] Цей дослідник вже входив у воду цього ходу!"
+					)
+
+					-- Відправляємо спеціальне повідомлення клієнту
+					self.networkManager:getHighlightTilesEvent():FireClient(player, {
+						type = "explorer_water_blocked",
+						explorerId = explorerId,
+						message = "Цей дослідник вже входив у воду цього ходу і не може рухатися!",
+						remainingActions = self.turnManager:getRemainingActions(player),
+					})
+
+					return false
+				end
 				break
 			end
 		end
@@ -670,51 +686,83 @@ function AtlantisGame:onPlayerSelectExplorer(player, explorerId)
 end
 
 function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
-	print("🚶 [СЕРВЕР] onPlayerMoveExplorer викликано")
-	print("  Гравець:", player.Name, "explorerId:", explorerId, "Q=", q, "R=", r)
+	print("🎯 [СЕРВЕР] onPlayerSelectExplorer викликано")
+	print("  Гравець:", player.Name)
+	print("  Запитує explorerId:", explorerId)
 
-	if not self.isGameActive or self.gameState ~= "main_game" then
-		print("❌ [СЕРВЕР] Гра не активна або не основна фаза!")
+	if not self.isGameActive then
+		print("❌ [СЕРВЕР] Гра не активна!")
+		return false
+	end
+
+	if self.gameState ~= "main_game" then
+		print("❌ [СЕРВЕР] Не основна фаза гри!")
 		return false
 	end
 
 	-- Перевіряємо чи хід гравця
-	if player ~= self.turnManager:getCurrentPlayer() then
-		print("❌ [СЕРВЕР] Не ваш хід!")
+	local currentPlayer = self.turnManager:getCurrentPlayer()
+	if player ~= currentPlayer then
+		print("❌ [СЕРВЕР] Не ваш хід! Зараз ходить:", currentPlayer.Name)
 		return false
 	end
 
-	-- Знаходимо дослідника с проверкой владельца
+	-- Знаходимо дослідника
 	local playerData = self.players[player]
 	if not playerData then
 		print("❌ [СЕРВЕР] Дані гравця не знайдені!")
 		return false
 	end
 
-	explorerId = tonumber(explorerId)
-	if not explorerId then
-		print("❌ [СЕРВЕР] Неправильний формат explorerId")
-		return false
-	end
+	print("  Кількість дослідників у гравця:", #(playerData.explorers or {}))
 
 	local explorer = nil
-	for _, exp in ipairs(playerData.explorers) do
-		if exp.id == explorerId and exp.player == player then
-			explorer = exp
-			break
+	if playerData.explorers then
+		explorerId = tonumber(explorerId)
+		if not explorerId then
+			print("❌ [СЕРВЕР] Неправильний формат explorerId")
+			return false
+		end
+
+		for _, exp in ipairs(playerData.explorers) do
+			if exp.id == explorerId and exp.player == player then
+				explorer = exp
+				print("  ✅ Знайдено дослідника гравця:", player.Name)
+				break
+			end
 		end
 	end
 
 	if not explorer then
-		print("❌ [СЕРВЕР] Дослідник не знайдений у гравця")
+		print(
+			"❌ [СЕРВЕР] Дослідник не знайдений або не належить гравцю!"
+		)
 		return false
 	end
 
-	-- Перевіряємо, чи вже входив у воду цього ходу
+	-- ВИПРАВЛЕННЯ: Перевіряємо, чи дослідник вже входив у воду цього ходу
 	if explorer.hasEnteredWaterThisTurn then
 		print("❌ [СЕРВЕР] Цей дослідник вже входив у воду цього ходу!")
+
+		-- Відправляємо спеціальне повідомлення клієнту
+		self.networkManager:getHighlightTilesEvent():FireClient(player, {
+			type = "explorer_water_blocked",
+			explorerId = explorerId,
+			message = "Цей дослідник вже входив у воду цього ходу і не може рухатися!",
+			remainingActions = self.turnManager:getRemainingActions(player),
+		})
+
 		return false
 	end
+
+	print(
+		"✅ [СЕРВЕР] Знайдено дослідника ID:",
+		explorer.id,
+		"на Q=",
+		explorer.q,
+		"R=",
+		explorer.r
+	)
 
 	-- Знаходимо інформацію про переміщення
 	local maxSteps = self.turnManager:getRemainingActions(player)

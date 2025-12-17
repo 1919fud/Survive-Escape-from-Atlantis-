@@ -89,8 +89,9 @@ UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
 					local remaining = data.remainingActions or 0
 					if remaining > 0 then
 						actionsLabel.Text = string.format("💰 Монет залишилось: %d/3", remaining)
-					else
-						actionsLabel.Text = "⏳ Очікування наступного ходу..."
+						--[[else
+						actionsLabel.Text = "⏳ Очікування наступного ходу..."]]
+						--
 					end
 				end
 			end)

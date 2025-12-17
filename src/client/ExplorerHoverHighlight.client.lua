@@ -201,17 +201,16 @@ local function highlightExplorerOnHover(explorerModel, highlight)
 		return
 	end
 
-	-- Не підсвічуємо інших дослідників, якщо вже є обраний
-	if selectedExplorer then
-		-- Дозволяємо підсвічувати тільки обраного дослідника
-		if explorerModel ~= selectedExplorer then
+	-- Не підсвічуємо якщо він вже обраний
+	if explorerModel == selectedExplorer then
+		if highlight then
+			-- Якщо це обраний дослідник, не показуємо зелене підсвічування
+			if currentHighlight and currentHighlight.Parent == explorerModel then
+				currentHighlight:Destroy()
+				currentHighlight = nil
+			end
 			return
 		end
-	end
-
-	-- Не підсвічуємо якщо вже обраний
-	if explorerModel == selectedExplorer then
-		return
 	end
 
 	if not highlight then
@@ -220,6 +219,15 @@ local function highlightExplorerOnHover(explorerModel, highlight)
 			currentHighlight = nil
 		end
 		currentHoveredExplorer = nil
+		return
+	end
+
+	-- Не показуємо підсвічування, якщо вже є вибраний інший дослідник
+	if selectedExplorer and explorerModel ~= selectedExplorer then
+		if currentHighlight and currentHighlight.Parent == explorerModel then
+			currentHighlight:Destroy()
+			currentHighlight = nil
+		end
 		return
 	end
 
@@ -256,16 +264,32 @@ local function highlightSelectedExplorer(explorerModel, highlight)
 	end
 
 	if not highlight then
+		-- Вимикаємо підсвічування
 		if selectionHighlight then
 			selectionHighlight:Destroy()
 			selectionHighlight = nil
 		end
+
+		-- ВАЖЛИВО: також прибираємо підсвічування наведення з цього дослідника
+		if currentHighlight and currentHighlight.Parent == explorerModel then
+			currentHighlight:Destroy()
+			currentHighlight = nil
+		end
+
 		selectedExplorer = nil
+		currentHoveredExplorer = nil -- ДОДАНО: скидаємо і наведення
 		updateSelectionUI(nil)
+		print("🔴 Підсвічування вибраного дослідника вимкнено")
 		return
 	end
 
-	-- Створюємо підсвічування для обраного
+	-- Спочатку очищаємо старе підсвічування
+	if selectionHighlight then
+		selectionHighlight:Destroy()
+		selectionHighlight = nil
+	end
+
+	-- Створюємо нове підсвічування для обраного
 	local highlightObj = Instance.new("Highlight")
 	highlightObj.Name = "ExplorerSelectedHighlight"
 	highlightObj.FillColor = Color3.fromRGB(0, 150, 255) -- Синій для обраного
@@ -298,6 +322,7 @@ local function highlightSelectedExplorer(explorerModel, highlight)
 
 	-- Оновлюємо UI
 	updateSelectionUI(explorerModel)
+	print("🔵 Підсвічування вибраного дослідника увімкнено")
 end
 
 local function clearTileHighlights()
@@ -430,6 +455,7 @@ local function highlightAvailableTiles(data)
 
 	-- Оновлюємо UI з інформацією про правила
 	if data.remainingActions then
+		closeButton.Visible = true
 		-- Перевіряємо чи є водні тайли
 		local hasWaterTiles = false
 		for _, tileData in ipairs(data.availableTiles) do
@@ -478,8 +504,36 @@ local function getHighlightedTileUnderCursor()
 	return nil
 end
 
--- Функція для очищення підсвічування тайлів
+local function clearSelectionState()
+	-- Очищаємо підсвічування тайлів
+	clearTileHighlights()
 
+	-- Скидаємо вибір дослідника
+	if selectedExplorer then
+		highlightSelectedExplorer(selectedExplorer, false)
+		-- ДОДАНО: також скидаємо підсвічування наведення
+		if currentHighlight and currentHighlight.Parent == selectedExplorer then
+			currentHighlight:Destroy()
+			currentHighlight = nil
+		end
+	end
+
+	-- Скидаємо стан
+	isMovementMode = false
+	currentHoveredExplorer = nil
+	selectedExplorer = nil
+
+	-- Ховаємо UI
+	selectionFrame.Visible = false
+
+	-- Повертаємо стандартний текст
+	if infoLabel then
+		infoLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+		infoLabel.Text = "Оберіть дослідника для переміщення"
+	end
+
+	print("🧹 Стан вибору очищено")
+end
 -- Обробник кліку по досліднику
 local function onExplorerClick(explorer)
 	if not isGamePhaseActive or not isMyTurn then
@@ -503,8 +557,19 @@ local function onExplorerClick(explorer)
 	-- Перевіряємо чи це наш дослідник
 	if explorerPlayer ~= player.Name then
 		print("❌ Це не ваш дослідник!")
-		print("  Очікуваний власник:", player.Name)
-		print("  Фактичний власник:", explorerPlayer)
+
+		-- Показуємо повідомлення
+		infoLabel.Text =
+			"❌ Це дослідник іншого гравця!\nОберіть свого дослідника"
+		infoLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+
+		task.delay(2, function()
+			if infoLabel then
+				infoLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+				infoLabel.Text = "Оберіть дослідника для переміщення"
+			end
+		end)
+
 		return
 	end
 
@@ -514,29 +579,37 @@ local function onExplorerClick(explorer)
 
 	selectedId = selectedId and (tonumber(selectedId) or selectedId)
 
-	if selectedExplorer and (explorerId ~= selectedId or explorerPlayer ~= selectedPlayer) then
+	if selectedExplorer and explorer ~= selectedExplorer then
 		print(
-			"⚠️ Вже обрано дослідника. Скасуйте поточний вибір, щоб обрати іншого."
+			"⚠️ Вже обрано іншого дослідника. Скасуйте поточний вибір, щоб обрати іншого."
 		)
 		print("  Обраний дослідник ID:", selectedId, "власник:", selectedPlayer)
+
+		-- Показуємо повідомлення
+		infoLabel.Text =
+			"⚠️ Вже обрано іншого дослідника!\nСкасуйте вибір, щоб обрати цього"
+		infoLabel.TextColor3 = Color3.fromRGB(255, 165, 0)
+
+		task.delay(2, function()
+			if infoLabel then
+				infoLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+				infoLabel.Text = "Оберіть дослідника для переміщення"
+			end
+		end)
+
 		return
 	end
 
 	if explorerId == selectedId and explorerPlayer == selectedPlayer then
 		-- Вже обраний - скасовуємо вибір
-		clearTileHighlights()
-		highlightSelectedExplorer(selectedExplorer, false)
 		print("✖️ Вибір дослідника скасовано")
-
-		-- Повідомляємо сервер про скасування вибору
+		clearSelectionState()
 		SelectExplorerEvent:FireServer(nil)
 	else
 		-- Обираємо нового дослідника
-		clearTileHighlights()
-		highlightSelectedExplorer(explorer, true)
 		print("🎯 Обрано дослідника ID:", explorerId, "гравця:", explorerPlayer)
-
-		-- Повідомляємо сервер про вибір дослідника
+		clearSelectionState() -- Спочатку очищаємо старий стан
+		highlightSelectedExplorer(explorer, true) -- Потім підсвічуємо нового
 		SelectExplorerEvent:FireServer(explorerId)
 	end
 end
@@ -570,24 +643,50 @@ local function moveExplorerToTile(tileData)
 end
 
 -- Обробник кліку по кнопці "Скасувати"
--- Обробник кліку по кнопці "Скасувати"
 closeButton.MouseButton1Click:Connect(function()
-	if selectedExplorer then
-		clearTileHighlights()
-		highlightSelectedExplorer(selectedExplorer, false)
-		SelectExplorerEvent:FireServer(nil)
-		print("✖️ Вибір скасовано через UI")
-
-		-- Додайте додаткове повідомлення для наочності
-		infoLabel.Text = "Вибір скасовано. Можете обрати іншого дослідника."
-		--[[task.delay(2, function()
-			if infoLabel then
-				infoLabel.Text = "Оберіть дослідника для переміщення"
-			end
-		end)]]
-		--
-	end
+	clearSelectionState()
+	SelectExplorerEvent:FireServer(nil)
+	print("✖️ Вибір скасовано через UI")
 end)
+
+-- Додайте цю функцію після інших функцій
+local function updateExplorerStatusInfo()
+	-- Ця функція може бути використана для відображення
+	-- інформації про те, чи може дослідник рухатися
+	print("🔄 Оновлення інформації про стан дослідників")
+
+	-- Можна додати візуальні індикатори на дослідниках,
+	-- які вже входили у воду
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:GetAttribute("IsExplorer") and obj:GetAttribute("Player") == player.Name then
+			local isOnWater = obj:GetAttribute("IsOnWater")
+			local hasEnteredWater = obj:GetAttribute("HasEnteredWaterThisTurn")
+
+			-- Можна додати світлові ефекти або індикатори
+			if hasEnteredWater or isOnWater then
+				-- Додайте візуальний ефект для дослідника,
+				-- який вже входив у воду або знаходиться на воді
+				-- Наприклад, блакитну ауру
+				local effect = obj:FindFirstChild("WaterLockEffect")
+				if not effect then
+					effect = Instance.new("Highlight")
+					effect.Name = "WaterLockEffect"
+					effect.FillColor = Color3.fromRGB(0, 100, 255)
+					effect.OutlineColor = Color3.fromRGB(0, 200, 255)
+					effect.FillTransparency = 0.8
+					effect.OutlineTransparency = 0.5
+					effect.Parent = obj
+				end
+			else
+				-- Видаляємо ефект, якщо дослідник може рухатися
+				local effect = obj:FindFirstChild("WaterLockEffect")
+				if effect then
+					effect:Destroy()
+				end
+			end
+		end
+	end
+end
 
 UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
 	if data.type == "ExplorerMoved" then
@@ -620,6 +719,7 @@ UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
 		isMyTurn = (currentPlayerName == player.Name)
 
 		if isMyTurn then
+			closeButton.Visible = false
 			print("🎮 Ваш хід! Залишилось дій:", data.remainingActions or 0)
 			selectionFrame.Visible = true
 			infoLabel.Size = UDim2.new(1, -29, 0, 150)
@@ -646,29 +746,7 @@ UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
 			print("⏳ Зараз ходить:", currentPlayerName)
 			selectionFrame.Visible = false
 		end
-	end
-end)
-
-UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
-	if data.type == "MainGameTurn" then
-		-- Обновляем информацию о ходе
-		local currentPlayerName = data.currentPlayer or ""
-		isMyTurn = (currentPlayerName == player.Name)
-
-		if isMyTurn then
-			print("🎮 Ваш хід! Залишилось дій:", data.remainingActions or 0)
-			selectionFrame.Visible = true
-			infoLabel.Text = string.format(
-				"🎯 Ваш хід!\n"
-					.. "⏱️ Залишилось дій: %d/%d\n"
-					.. "🖱️ Оберіть дослідника для переміщення",
-				data.remainingActions or 0,
-				data.maxActions or 3
-			)
-		else
-			print("⏳ Зараз ходить:", currentPlayerName)
-			selectionFrame.Visible = false
-		end
+		updateExplorerStatusInfo()
 	end
 end)
 
@@ -762,8 +840,44 @@ HighlightTilesEvent.OnClientEvent:Connect(function(data)
 		highlightAvailableTiles(data)
 	elseif data and data.type == "clear" then
 		clearTileHighlights()
+	elseif data and data.type == "explorer_water_blocked" then
+		-- Випадок, коли дослідник вже входив у воду
+		print("💧 Дослідник заблокований для руху - вже входив у воду!")
+
+		-- Очищаємо підсвічування
+		clearTileHighlights()
+
+		-- Показуємо спеціальне повідомлення в UI
+		if selectedExplorer then
+			infoLabel.Text = string.format(
+				"📍 Дослідник #%d\n"
+					.. "❌ Заблоковано для руху!\n"
+					.. "💧 Цей дослідник вже входив у воду цього ходу\n"
+					.. "⏳ Почекайте наступного ходу, щоб рухатися знову\n\n"
+					.. "🎯 Оберіть іншого дослідника",
+				selectedExplorer:GetAttribute("ExplorerId")
+			)
+
+			-- Змінюємо колір тексту на червоний
+			infoLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+
+			-- Автоматично скасовуємо вибір через 3 секунди
+			task.delay(3, function()
+				if selectionFrame.Visible then
+					clearTileHighlights()
+					highlightSelectedExplorer(selectedExplorer, false)
+					SelectExplorerEvent:FireServer(nil)
+
+					-- Повертаємо нормальний колір тексту
+					infoLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+					infoLabel.Text = "Оберіть дослідника для переміщення"
+				end
+			end)
+		end
 	end
 end)
+
+-- Додайте цю функцію після інших функцій
 
 -- Основний цикл для відстеження наведення
 RunService.Heartbeat:Connect(function()
@@ -973,28 +1087,6 @@ UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
 				updateExplorerPosition(obj, data.q, data.r)
 				break
 			end
-		end
-	end
-end)
-
-UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
-	if data.type == "MainGameTurn" then
-		-- Обновляем информацию о ходе
-		local currentPlayerName = data.currentPlayer or ""
-		isMyTurn = (currentPlayerName == player.Name)
-
-		if isMyTurn then
-			print("🎮 Ваш хід! Залишилось дій:", data.remainingActions or 0)
-			selectionFrame.Visible = true
-			infoLabel.Text = string.format(
-				"🎯 Ваш хід!\n⏱️ Залишилось дій: %d/%d\n🖱️ Оберіть дослідника для переміщення",
-				data.remainingActions or 0,
-				data.maxActions or 3
-			)
-		else
-			print("⏳ Зараз ходить:", currentPlayerName)
-			print("  Ваше ім'я:", player.Name)
-			selectionFrame.Visible = false
 		end
 	end
 end)
