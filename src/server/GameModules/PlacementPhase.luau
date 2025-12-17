@@ -186,6 +186,7 @@ function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
 		treasureValue = treasureValue,
 		q = q,
 		r = r,
+		hasEnteredWaterThisTurn = false,
 	}
 	table.insert(playerData.explorers, explorer)
 	playerData.explorersPlaced += 1

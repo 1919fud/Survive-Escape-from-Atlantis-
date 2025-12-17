@@ -142,7 +142,8 @@ function AtlantisGame:getAvailableMovementTiles(explorer, maxSteps)
 	local q = explorer.q
 	local r = explorer.r
 
-	local queue = { { q = q, r = r, steps = 0 } }
+	-- Система BFS з обмеженням по воді
+	local queue = { { q = q, r = r, steps = 0, hasEnteredWater = false } }
 	visited[self.mapManager:getCoordKey(q, r)] = true
 
 	while #queue > 0 do
@@ -151,7 +152,7 @@ function AtlantisGame:getAvailableMovementTiles(explorer, maxSteps)
 
 		-- Якщо не початкова позиція і не перевищили ліміт кроків
 		if current.steps > 0 and current.steps <= maxSteps then
-			-- Отримуємо тайл (перевага островам)
+			-- Отримуємо тайл
 			local tile = self.mapManager:getTileAtPosition(current.q, current.r)
 			if tile then
 				-- Перевіряємо чи на тайлі немає іншого дослідника
@@ -173,6 +174,11 @@ function AtlantisGame:getAvailableMovementTiles(explorer, maxSteps)
 				end
 
 				if not hasOtherExplorer then
+					-- Визначаємо тип тайла
+					local isWaterTile = tile.isWater or tile.type == "Water"
+					local isLandTile = not isWaterTile
+
+					-- Додаємо тайл до доступних
 					table.insert(availableTiles, {
 						q = current.q,
 						r = current.r,
@@ -180,8 +186,10 @@ function AtlantisGame:getAvailableMovementTiles(explorer, maxSteps)
 						cost = current.steps,
 						coordKey = currentKey,
 						tile = tile,
-						isWater = tile.isWater or false,
-						isLand = tile.isLand or not tile.isWater,
+						isWater = isWaterTile,
+						isLand = isLandTile,
+						tileType = tile.tileType or (isWaterTile and "Water" or "Land"),
+						hasEnteredWater = current.hasEnteredWater, -- Чи входив у воду на цьому шляху
 					})
 				end
 			end
@@ -204,12 +212,38 @@ function AtlantisGame:getAvailableMovementTiles(explorer, maxSteps)
 				local neighborKey = self.mapManager:getCoordKey(nq, nr)
 
 				if not visited[neighborKey] then
-					visited[neighborKey] = true
-					table.insert(queue, {
-						q = nq,
-						r = nr,
-						steps = current.steps + 1,
-					})
+					-- Отримуємо тайл сусіда
+					local neighborTile = self.mapManager:getTileAtPosition(nq, nr)
+					if neighborTile then
+						local isNeighborWater = neighborTile.isWater or neighborTile.type == "Water"
+						local isNeighborLand = not isNeighborWater
+
+						-- Перевіряємо можливість переходу
+						local canMoveToNeighbor = true
+						local newHasEnteredWater = current.hasEnteredWater
+
+						if isNeighborWater then
+							-- Перехід на воду
+							if current.hasEnteredWater then
+								-- Вже входив у воду на цьому ходу - не може знову
+								canMoveToNeighbor = false
+							else
+								-- Перший вхід у воду на цьому ходу
+								newHasEnteredWater = true
+							end
+						end
+						-- Перехід на сушу завжди дозволений
+
+						if canMoveToNeighbor then
+							visited[neighborKey] = true
+							table.insert(queue, {
+								q = nq,
+								r = nr,
+								steps = current.steps + 1,
+								hasEnteredWater = newHasEnteredWater,
+							})
+						end
+					end
 				end
 			end
 		end
@@ -218,22 +252,29 @@ function AtlantisGame:getAvailableMovementTiles(explorer, maxSteps)
 	print("📍 [СЕРВЕР] Знайдено доступних тайлів:", #availableTiles)
 
 	-- Логування знайдених тайлів
+	local landCount = 0
+	local waterCount = 0
+
 	for _, tileData in ipairs(availableTiles) do
 		if tileData.isWater then
+			waterCount = waterCount + 1
 			print("    💧 Q=", tileData.q, "R=", tileData.r, "кроків:", tileData.steps)
 		else
+			landCount = landCount + 1
 			print(
 				"    🌍 Q=",
 				tileData.q,
 				"R=",
 				tileData.r,
 				"тип:",
-				tileData.tile.type or "Land",
+				tileData.tileType,
 				"кроків:",
 				tileData.steps
 			)
 		end
 	end
+
+	print("  📊 Суша:", landCount, "Вода:", waterCount)
 
 	return availableTiles
 end
@@ -669,18 +710,26 @@ function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
 		return false
 	end
 
+	-- Перевіряємо, чи вже входив у воду цього ходу
+	if explorer.hasEnteredWaterThisTurn then
+		print("❌ [СЕРВЕР] Цей дослідник вже входив у воду цього ходу!")
+		return false
+	end
+
 	-- Знаходимо інформацію про переміщення
 	local maxSteps = self.turnManager:getRemainingActions(player)
 	local availableTiles = self:getAvailableMovementTiles(explorer, maxSteps)
 
 	local moveCost = nil
 	local targetTileData = nil
+	local isWaterTile = false
 
 	-- Знаходимо тайл серед доступних і отримуємо його вартість
 	for _, tileData in ipairs(availableTiles) do
 		if tileData.q == q and tileData.r == r then
 			moveCost = tileData.cost
 			targetTileData = tileData
+			isWaterTile = tileData.isWater or false
 			break
 		end
 	end
@@ -691,6 +740,7 @@ function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
 	end
 
 	print("💰 [СЕРВЕР] Вартість переміщення:", moveCost, "монет(и)")
+	print("  Тип тайла:", isWaterTile and "Вода" or "Сушя")
 
 	-- Використовуємо дії
 	local actionsUsed = 0
@@ -720,6 +770,14 @@ function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
 	explorer.q = q
 	explorer.r = r
 
+	-- Позначаємо, якщо входив у воду
+	if isWaterTile then
+		explorer.hasEnteredWaterThisTurn = true
+		print(
+			"  💧 Дослідник ввійшов у воду - більше не може рухатися цього ходу"
+		)
+	end
+
 	-- Уведомляємо всіх клієнтів про переміщення
 	self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
 		type = "ExplorerMoved",
@@ -728,6 +786,7 @@ function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
 		r = r,
 		playerName = player.Name,
 		moveCost = moveCost,
+		isWaterTile = isWaterTile,
 		remainingActions = self.turnManager:getRemainingActions(player),
 	})
 
@@ -751,8 +810,27 @@ end
 function AtlantisGame:endPlayerTurn(player)
 	print("🎮 [СЕРВЕР] Завершення ходу гравця:", player.Name)
 
+	-- Скидаємо прапори входу у воду для всіх дослідників гравця
+	local playerData = self.players[player]
+	if playerData and playerData.explorers then
+		for _, explorer in ipairs(playerData.explorers) do
+			explorer.hasEnteredWaterThisTurn = nil
+		end
+		print(
+			"  💧 Скинуто прапори входу у воду для всіх дослідників гравця"
+		)
+	end
+
 	-- Переходимо до наступного гравця
 	local nextPlayer = self.turnManager:nextTurn()
+
+	-- Скидаємо прапори входу у воду для нового гравця
+	local nextPlayerData = self.players[nextPlayer]
+	if nextPlayerData and nextPlayerData.explorers then
+		for _, explorer in ipairs(nextPlayerData.explorers) do
+			explorer.hasEnteredWaterThisTurn = nil
+		end
+	end
 
 	-- Уведомляємо всіх про новий хід
 	self:startPlayerTurn()

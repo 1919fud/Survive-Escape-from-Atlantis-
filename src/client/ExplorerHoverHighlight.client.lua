@@ -59,7 +59,7 @@ titleLabel.Parent = selectionFrame
 
 local infoLabel = Instance.new("TextLabel")
 infoLabel.Name = "InfoLabel"
-infoLabel.Size = UDim2.new(1, -20, 0, 60)
+infoLabel.Size = UDim2.new(1, -29, 0, 115)
 infoLabel.Position = UDim2.new(0, 10, 0, 35)
 infoLabel.BackgroundTransparency = 1
 infoLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
@@ -95,20 +95,44 @@ local function updateSelectionUI(explorer)
 	local treasureValue = explorer:GetAttribute("TreasureValue") or 0
 	local q = explorer:GetAttribute("Q") or 0
 	local r = explorer:GetAttribute("R") or 0
+	local isOnWater = explorer:GetAttribute("IsOnWater") or false
+
+	-- Додаємо інформацію про правила руху
+	local rulesText = ""
+	if isOnWater then
+		rulesText = "\n🌊 Зараз на воді:\n"
+			.. "• Можна зробити 1 крок\n"
+			.. "• Можна вийти на сушу\n"
+			.. "• Не можна залишатися на воді\n"
+			.. "❗ Потрібно вийти на сушу цього ходу!"
+	else
+		rulesText = "\n📜 Правила руху:\n"
+			.. "• ⛰️ По суші: без обмежень\n"
+			.. "• 🌊 У воду: можна лише 1 раз за хід\n"
+			.. "• ⚠️ Після води: рух завершено\n"
+			.. "• 🎯 Плануйте маршрут обережно!"
+	end
 
 	infoLabel.Text = string.format(
 		"📍 Дослідник #%d\n"
 			.. "💰 Скарби: %d\n"
 			.. "🗺️ Координати: Q%d R%d\n"
-			.. "🖱️ Натисніть на доступний тайл для переміщення\n"
-			.. "❗ Інші дослідники зараз недоступні для вибору",
+			.. "💧 Стан: %s\n"
+			.. "%s\n\n"
+			.. "🖱️ Натисніть на доступний тайл для переміщення",
 		explorerId,
 		treasureValue,
 		q,
-		r
+		r,
+		isOnWater and "На воді 🌊" or "На суші ⛰️",
+		rulesText
 	)
 
 	selectionFrame.Visible = true
+	selectionFrame.Size = UDim2.new(0, 350, 0, 180) -- Збільшуємо розмір для нового тексту
+
+	-- Оновлюємо позицію кнопки
+	closeButton.Position = UDim2.new(0.5, -40, 1, -30)
 end
 
 -- Функція для отримання моделі дослідника (якщо клікнули на частину)
@@ -293,6 +317,24 @@ local function clearTileHighlights()
 	isMovementMode = false
 end
 
+local function createWaterEffect(tile)
+	if not tile:FindFirstChild("WaterEffect") then
+		local particleEmitter = Instance.new("ParticleEmitter")
+		particleEmitter.Name = "WaterEffect"
+		particleEmitter.Color = ColorSequence.new(Color3.fromRGB(100, 150, 255))
+		particleEmitter.Size = NumberSequence.new(0.3)
+		particleEmitter.Transparency = NumberSequence.new(0.5)
+		particleEmitter.Lifetime = NumberRange.new(0.5, 1)
+		particleEmitter.Rate = 20
+		particleEmitter.Speed = NumberRange.new(1, 2)
+		particleEmitter.VelocitySpread = 180
+		particleEmitter.Parent = tile
+
+		-- Видаляємо через 5 секунд після зникнення highlight
+		game:GetService("Debris"):AddItem(particleEmitter, 5)
+	end
+end
+
 local function highlightAvailableTiles(data)
 	clearTileHighlights()
 
@@ -300,18 +342,15 @@ local function highlightAvailableTiles(data)
 		return
 	end
 
-	-- Створюємо різні кольори для різних вартостей
+	-- Створюємо різні кольори для різних вартостей і типів
 	local colorByCost = {
-		[1] = Color3.fromRGB(0, 255, 0), -- Зелений для 1 кроку
+		[1] = Color3.fromRGB(0, 255, 0), -- Зелений для 1 кроку (сушя)
 		[2] = Color3.fromRGB(255, 255, 0), -- Жовтий для 2 кроків
 		[3] = Color3.fromRGB(255, 165, 0), -- Помаранчевий для 3 кроків
 	}
 
-	local outlineColorByCost = {
-		[1] = Color3.fromRGB(0, 200, 0),
-		[2] = Color3.fromRGB(200, 200, 0),
-		[3] = Color3.fromRGB(200, 100, 0),
-	}
+	-- Для воды специальные цвета
+	local waterColor = Color3.fromRGB(0, 150, 255) -- Синий для воды
 
 	for _, tileData in ipairs(data.availableTiles) do
 		local tile = tileData.tile and tileData.tile.meshPart
@@ -320,10 +359,31 @@ local function highlightAvailableTiles(data)
 			highlight.Name = "AvailableTileHighlight"
 
 			local cost = tileData.cost or 1
-			highlight.FillColor = colorByCost[cost] or Color3.fromRGB(0, 255, 0)
-			highlight.OutlineColor = outlineColorByCost[cost] or Color3.fromRGB(0, 200, 0)
-			highlight.FillTransparency = 0.7
-			highlight.OutlineTransparency = 0
+			local isWater = tileData.isWater or false
+
+			if isWater then
+				-- Водні тайли сині з спеціальним ефектом
+				highlight.FillColor = waterColor
+				highlight.OutlineColor = Color3.fromRGB(0, 100, 200)
+				highlight.FillTransparency = 0.3 -- Менша прозорість для води
+				highlight.OutlineTransparency = 0
+
+				-- Додаємо ефект хвиль для води
+				coroutine.wrap(function()
+					while highlight and highlight.Parent == tile do
+						local tweenInfo = TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+						local tween = TweenService:Create(highlight, tweenInfo, { FillTransparency = 0.6 })
+						tween:Play()
+						task.wait(1)
+					end
+				end)()
+			else
+				-- Сухопутні тайли по вартості
+				highlight.FillColor = colorByCost[cost] or Color3.fromRGB(0, 255, 0)
+				highlight.OutlineColor = Color3.fromRGB(0, 200, 0)
+				highlight.FillTransparency = 0.7
+				highlight.OutlineTransparency = 0
+			end
 
 			-- Додаємо BillboardGui з інформацією про вартість
 			local billboard = Instance.new("BillboardGui")
@@ -340,8 +400,16 @@ local function highlightAvailableTiles(data)
 			costLabel.BackgroundTransparency = 1
 			costLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 			costLabel.Text = tostring(cost)
+
+			if isWater then
+				costLabel.Text = cost .. " 💧" -- Іконка воды
+				costLabel.TextColor3 = Color3.fromRGB(150, 220, 255)
+				costLabel.Font = Enum.Font.GothamBlack
+			else
+				costLabel.Font = Enum.Font.GothamBold
+			end
+
 			costLabel.TextScaled = true
-			costLabel.Font = Enum.Font.GothamBold
 			costLabel.TextStrokeTransparency = 0
 			costLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
 			costLabel.Parent = billboard
@@ -350,6 +418,7 @@ local function highlightAvailableTiles(data)
 			highlight:SetAttribute("Cost", cost)
 			highlight:SetAttribute("Q", tileData.q)
 			highlight:SetAttribute("R", tileData.r)
+			highlight:SetAttribute("IsWater", isWater)
 
 			highlight.Parent = tile
 			table.insert(tileHighlights, highlight)
@@ -359,17 +428,35 @@ local function highlightAvailableTiles(data)
 	isMovementMode = true
 	print("📍 Показано доступні тайли для переміщення")
 
-	-- Оновлюємо UI з інформацією
+	-- Оновлюємо UI з інформацією про правила
 	if data.remainingActions then
+		-- Перевіряємо чи є водні тайли
+		local hasWaterTiles = false
+		for _, tileData in ipairs(data.availableTiles) do
+			if tileData.isWater then
+				hasWaterTiles = true
+				break
+			end
+		end
+
+		local waterWarning = ""
+		if hasWaterTiles then
+			waterWarning =
+				"\n⚠️ УВАГА: Крок у воду завершить хід цього дослідника!"
+		end
+		infoLabel.Position = UDim2.new(0, 10, 0, 15)
+		infoLabel.Size = UDim2.new(0, 335, 0, 140)
 		infoLabel.Text = string.format(
-			"📍 Дослідник #%d обраний\n"
-				.. "💰 Залишилось монет: %d\n"
-				.. "🟢 1 крок = 1 монета\n"
-				.. "🟡 2 кроки = 2 монети\n"
-				.. "🟠 3 кроки = 3 монети\n"
-				.. "🖱️ Клікніть на тайл для переміщення",
+			"📍 Дослідник #%d\n"
+				.. "💰 Залишилось монет: %d/3\n"
+				.. "📜 Правила руху:\n"
+				.. "  ⛰️ По суші: без обмежень\n"
+				.. "  🌊 У воду: МАКСИМУМ 1 раз за хід\n"
+				.. "  ⛔ Після води: рух завершено"
+				.. "%s",
 			selectedExplorer:GetAttribute("ExplorerId"),
-			data.remainingActions
+			data.remainingActions,
+			waterWarning
 		)
 	end
 end
@@ -493,11 +580,72 @@ closeButton.MouseButton1Click:Connect(function()
 
 		-- Додайте додаткове повідомлення для наочності
 		infoLabel.Text = "Вибір скасовано. Можете обрати іншого дослідника."
-		task.delay(2, function()
+		--[[task.delay(2, function()
 			if infoLabel then
 				infoLabel.Text = "Оберіть дослідника для переміщення"
 			end
-		end)
+		end)]]
+		--
+	end
+end)
+
+UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
+	if data.type == "ExplorerMoved" then
+		-- Оновлюємо стан дослідника, якщо він обраний
+		if selectedExplorer and selectedExplorer:GetAttribute("ExplorerId") == data.explorerId then
+			-- Оновлюємо атрибут IsOnWater
+			selectedExplorer:SetAttribute("IsOnWater", data.isWaterTile or false)
+
+			-- Оновлюємо UI
+			updateSelectionUI(selectedExplorer)
+
+			-- Додаткове повідомлення якщо крок на воду
+			if data.isWaterTile then
+				infoLabel.Text = infoLabel.Text
+					.. "\n\n💧 КРОК НА ВОДУ! Рух завершено для цього дослідника."
+
+				-- Автоматично закриваємо вибір через 3 секунди
+				task.delay(3, function()
+					if selectionFrame.Visible then
+						clearTileHighlights()
+						highlightSelectedExplorer(selectedExplorer, false)
+						SelectExplorerEvent:FireServer(nil)
+					end
+				end)
+			end
+		end
+	elseif data.type == "MainGameTurn" then
+		-- Обновляем информацию о ходе
+		local currentPlayerName = data.currentPlayer or ""
+		isMyTurn = (currentPlayerName == player.Name)
+
+		if isMyTurn then
+			print("🎮 Ваш хід! Залишилось дій:", data.remainingActions or 0)
+			selectionFrame.Visible = true
+			infoLabel.Size = UDim2.new(1, -29, 0, 150)
+			-- Додаємо загальні правила гри
+			local generalRules = "\n🎯 Загальні правила гри:\n"
+				.. "• Кожен гравець має 3 монети за хід\n"
+				.. "• 1 крок = 1 монета\n"
+				.. "• Кожен дослідник може ввійти у воду 1 раз за хід\n"
+				.. "• Після води рух завершено для цього дослідника\n"
+				.. "• Наступного ходу можна знову ввійти у воду"
+
+			infoLabel.Text = string.format(
+				"🎯 Ваш хід!\n"
+					.. "⏱️ Залишилось дій: %d/3\n"
+					.. "%s\n"
+					.. "🖱️ Оберіть дослідника для переміщення",
+				data.remainingActions or 0,
+				generalRules
+			)
+
+			-- Збільшуємо розмір фрейму
+			selectionFrame.Size = UDim2.new(0, 400, 0, 220)
+		else
+			print("⏳ Зараз ходить:", currentPlayerName)
+			selectionFrame.Visible = false
+		end
 	end
 end)
 
