@@ -965,7 +965,7 @@ local function updateExplorerPosition(explorer, q, r)
 		return
 	end
 
-	-- Знаходимо тайл за координатами (як острів, так і воду)
+	-- Знаходимо тайл за координатами
 	local map = workspace:WaitForChild("Map")
 	local targetTile = nil
 	local isWaterTile = false
@@ -1007,16 +1007,50 @@ local function updateExplorerPosition(explorer, q, r)
 	if targetTile and explorer.PrimaryPart then
 		local tilePosition = targetTile.Position
 
+		-- ВИПРАВЛЕННЯ: Рахуємо, скільки вже дослідників на цьому тайлі
+		local explorersOnTile = {}
+		for _, obj in ipairs(workspace:GetChildren()) do
+			if obj:GetAttribute("IsExplorer") then
+				local expQ = obj:GetAttribute("Q")
+				local expR = obj:GetAttribute("R")
+				if expQ == q and expR == r and obj ~= explorer then
+					table.insert(explorersOnTile, obj)
+				end
+			end
+		end
+
+		local explorerIndex = #explorersOnTile + 1 -- Наш дослідник буде наступним
+		local maxExplorersPerTile = 6
+		local spacing = 2 -- Відстань між дослідниками
+
 		if isWaterTile then
-			-- Позиціонування на воді
-			local heightOffset = 4.38 -- Висота над водою
-			local explorerPosition = Vector3.new(tilePosition.X, heightOffset, tilePosition.Z)
-			local rotatedCFrame = CFrame.new(explorerPosition) * CFrame.Angles(0, math.rad(90), 0)
+			-- Позиціонування на воді зі зміщенням
+			local baseHeight = 4.38 -- Базова висота над водою
 
+			-- Розраховуємо зміщення по колу
+			local angle = (explorerIndex - 1) * (360 / maxExplorersPerTile)
+			local radius = 1.5 -- Радіус кола
+
+			local offsetX = math.cos(math.rad(angle)) * radius
+			local offsetZ = math.sin(math.rad(angle)) * radius
+
+			local explorerPosition = Vector3.new(tilePosition.X + offsetX, baseHeight, tilePosition.Z + offsetZ)
+
+			local rotatedCFrame = CFrame.new(explorerPosition) * CFrame.Angles(0, math.rad(90 + angle), 0)
 			explorer:SetPrimaryPartCFrame(rotatedCFrame)
-			print("📍 Дослідник переміщений на ВОДУ Q=", q, "R=", r)
 
-			-- Додаємо ефект для води (необов'язково)
+			print(
+				"📍 Дослідник переміщений на ВОДУ Q=",
+				q,
+				"R=",
+				r,
+				"позиція:",
+				explorerIndex,
+				"з",
+				maxExplorersPerTile
+			)
+
+			-- Додаємо ефект для води
 			local waterEffect = explorer:FindFirstChild("WaterEffect")
 			if not waterEffect then
 				waterEffect = Instance.new("ParticleEmitter")
@@ -1030,31 +1064,43 @@ local function updateExplorerPosition(explorer, q, r)
 				waterEffect.Parent = explorer.PrimaryPart
 			end
 		else
-			-- Позиціонування на суші
-			local heightOffset = 0
+			-- Позиціонування на суші зі зміщенням
+			local baseHeight = 0
 			local targetTileType = targetTile:GetAttribute("TileType")
 
 			if targetTileType == "Beach" then
-				heightOffset = 6.062
+				baseHeight = 6.062
 			elseif targetTileType == "Forest" then
-				heightOffset = 7.037
+				baseHeight = 7.037
 			elseif targetTileType == "Mountain" then
-				heightOffset = 8.007
+				baseHeight = 8.007
 			else
-				heightOffset = 6 -- За замовчуванням
+				baseHeight = 6
 			end
 
-			local explorerPosition = Vector3.new(tilePosition.X, heightOffset, tilePosition.Z)
-			local rotatedCFrame = CFrame.new(explorerPosition) * CFrame.Angles(0, math.rad(90), 0)
+			-- Розраховуємо зміщення по колу
+			local angle = (explorerIndex - 1) * (360 / maxExplorersPerTile)
+			local radius = 2.0 -- Більший радіус для суші
 
+			local offsetX = math.cos(math.rad(angle)) * radius
+			local offsetZ = math.sin(math.rad(angle)) * radius
+
+			local explorerPosition = Vector3.new(tilePosition.X + offsetX, baseHeight, tilePosition.Z + offsetZ)
+
+			local rotatedCFrame = CFrame.new(explorerPosition) * CFrame.Angles(0, math.rad(90 + angle), 0)
 			explorer:SetPrimaryPartCFrame(rotatedCFrame)
+
 			print(
 				"📍 Дослідник переміщений на ОСТРІВ Q=",
 				q,
 				"R=",
 				r,
 				"тип:",
-				targetTileType
+				targetTileType,
+				"позиція:",
+				explorerIndex,
+				"з",
+				maxExplorersPerTile
 			)
 
 			-- Видаляємо ефект води, якщо він є
@@ -1068,6 +1114,9 @@ local function updateExplorerPosition(explorer, q, r)
 		explorer:SetAttribute("Q", q)
 		explorer:SetAttribute("R", r)
 		explorer:SetAttribute("IsOnWater", isWaterTile)
+
+		-- Додаємо атрибут з позицією на тайлі
+		explorer:SetAttribute("TilePositionIndex", explorerIndex)
 	else
 		print(
 			"❌ Не знайдено тайл для позиціонування дослідника Q=",

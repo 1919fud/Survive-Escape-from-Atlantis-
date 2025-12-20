@@ -109,8 +109,9 @@ local function spawnExplorerAppearanceEffect(explorer)
 end
 
 -- Создание визуала исследователя
+-- Створення визуала дослідника
 local function createExplorerVisual(playerName, treasureValue, q, r, explorerId)
-	-- Інем шаблон дослідника
+	-- Знаходимо шаблон дослідника
 	local explorerTemplate = ReplicatedStorage:FindFirstChild("Explorer")
 	if not explorerTemplate then
 		warn("❌ Не знайдений шаблон Explorer в ReplicatedStorage")
@@ -164,16 +165,24 @@ local function createExplorerVisual(playerName, treasureValue, q, r, explorerId)
 		return
 	end
 
-	-- Перевіряємо, чи не існує вже дослідник на цьому тайлі
-	local existingExplorer = findExistingExplorer(q, r)
-	if existingExplorer then
-		warn("❌ На цьому тайлі вже є дослідник: Q=", q, "R=", r)
-		return
+	-- ВИПРАВЛЕННЯ: Рахуємо вже існуючих дослідників на цьому тайлі
+	local existingExplorersOnTile = {}
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:GetAttribute("IsExplorer") then
+			local expQ = obj:GetAttribute("Q")
+			local expR = obj:GetAttribute("R")
+			if expQ == q and expR == r then
+				table.insert(existingExplorersOnTile, obj)
+			end
+		end
 	end
+
+	local explorerIndex = #existingExplorersOnTile + 1
+	local maxExplorersPerTile = 6
 
 	-- Створюємо дослідника
 	local explorer = explorerTemplate:Clone()
-	explorer.Name = "Explorer_" .. playerName .. "_" .. treasureValue
+	explorer.Name = "Explorer_" .. playerName .. "_" .. treasureValue .. "_" .. explorerId
 
 	-- Переконуємося, що у моделі є PrimaryPart
 	if not explorer.PrimaryPart then
@@ -191,35 +200,50 @@ local function createExplorerVisual(playerName, treasureValue, q, r, explorerId)
 		return
 	end
 
-	-- Позиціонуємо на тайлі
+	-- Позиціонуємо на тайлі зі зміщенням
 	local tilePosition = targetTile.Position
 
 	if isWaterTile then
-		-- Позиціонування на воді
-		local heightOffset = 2.5
-		local explorerPosition = Vector3.new(tilePosition.X, heightOffset, tilePosition.Z)
-		local rotatedCFrame = CFrame.new(explorerPosition) * CFrame.Angles(0, math.rad(90), 0)
+		-- Позиціонування на воді зі зміщенням
+		local baseHeight = 4.38
+
+		-- Розраховуємо зміщення по колу
+		local angle = (explorerIndex - 1) * (360 / maxExplorersPerTile)
+		local radius = 1.5
+
+		local offsetX = math.cos(math.rad(angle)) * radius
+		local offsetZ = math.sin(math.rad(angle)) * radius
+
+		local explorerPosition = Vector3.new(tilePosition.X + offsetX, baseHeight, tilePosition.Z + offsetZ)
+
+		local rotatedCFrame = CFrame.new(explorerPosition) * CFrame.Angles(0, math.rad(90 + angle), 0)
 		explorer:SetPrimaryPartCFrame(rotatedCFrame)
-		print("🌊 Дослідник створений на ВОДІ")
 	else
-		-- Позиціонування на суші
-		local heightOffset = 0
+		-- Позиціонування на суші зі зміщенням
+		local baseHeight = 0
 		local targetTileType = targetTile:GetAttribute("TileType")
 
 		if targetTileType == "Beach" then
-			heightOffset = 6.062
+			baseHeight = 6.062
 		elseif targetTileType == "Forest" then
-			heightOffset = 7.037
+			baseHeight = 7.037
 		elseif targetTileType == "Mountain" then
-			heightOffset = 8.007
+			baseHeight = 8.007
 		else
-			heightOffset = 6 -- За замовчуванням
+			baseHeight = 6
 		end
 
-		local explorerPosition = Vector3.new(tilePosition.X, heightOffset, tilePosition.Z)
-		local rotatedCFrame = CFrame.new(explorerPosition) * CFrame.Angles(0, math.rad(90), 0)
+		-- Розраховуємо зміщення по колу
+		local angle = (explorerIndex - 1) * (360 / maxExplorersPerTile)
+		local radius = 2.0
+
+		local offsetX = math.cos(math.rad(angle)) * radius
+		local offsetZ = math.sin(math.rad(angle)) * radius
+
+		local explorerPosition = Vector3.new(tilePosition.X + offsetX, baseHeight, tilePosition.Z + offsetZ)
+
+		local rotatedCFrame = CFrame.new(explorerPosition) * CFrame.Angles(0, math.rad(90 + angle), 0)
 		explorer:SetPrimaryPartCFrame(rotatedCFrame)
-		print("🌍 Дослідник створений на суші, тип:", targetTileType)
 	end
 
 	-- Встановлюємо колір залежно від гравця
@@ -240,6 +264,7 @@ local function createExplorerVisual(playerName, treasureValue, q, r, explorerId)
 	explorer:SetAttribute("R", r)
 	explorer:SetAttribute("IsExplorer", true)
 	explorer:SetAttribute("IsOnWater", isWaterTile)
+	explorer:SetAttribute("TilePositionIndex", explorerIndex)
 
 	-- Поміщаємо в workspace
 	explorer.Parent = workspace
@@ -254,6 +279,10 @@ local function createExplorerVisual(playerName, treasureValue, q, r, explorerId)
 		q,
 		"R=",
 		r,
+		"позиція:",
+		explorerIndex,
+		"/",
+		maxExplorersPerTile,
 		isWaterTile and "(вода)" or "(суша)"
 	)
 end
@@ -424,8 +453,6 @@ local function getTileUnderCursor()
 	return nil
 end
 
--- Подсветка тайла
-
 -- Обработчик клика по тайлу
 local function onTileClick(tile)
 	if not isPlacementMode or not isMyTurn then
@@ -449,6 +476,13 @@ local function onTileClick(tile)
 		end
 
 		if tile:GetAttribute("IsLand") == true then
+			local existingExplorer = findExistingExplorer(q, r)
+			if existingExplorer then
+				statusLabel.Text =
+					"❌ На цьому тайлі вже є дослідник! Фаза розміщення - лиміт 1 на тайлі"
+				updateButtonsHighlight()
+				return
+			end
 			print(
 				"📍 Размещение исследователя на Q=",
 				q,
@@ -464,11 +498,8 @@ local function onTileClick(tile)
 			statusLabel.Text = "❌ Тут не можна ставити дослідника (не земля)"
 			warn("❌ Тайл не є землею для розміщення дослідника")
 			updateButtonsHighlight()
-
-			statusLabel.Text = "Оберіть значення скарбів (1-5)"
 		end
-
-		-- Сбрасываем выбор для следующего размещения
+		statusLabel.Text = "Оберіть значення скарбів (1-5)"
 	elseif currentPhase == "boats" then
 		-- Фаза човнів
 		if tile:GetAttribute("Placeboat") == true then

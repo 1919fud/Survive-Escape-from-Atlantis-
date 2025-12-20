@@ -155,25 +155,12 @@ function AtlantisGame:getAvailableMovementTiles(explorer, maxSteps)
 			-- Отримуємо тайл
 			local tile = self.mapManager:getTileAtPosition(current.q, current.r)
 			if tile then
-				-- Перевіряємо чи на тайлі немає іншого дослідника
-				local hasOtherExplorer = false
-				for _, playerData in pairs(self.players) do
-					if playerData.explorers then
-						for _, otherExplorer in ipairs(playerData.explorers) do
-							if otherExplorer.q == current.q and otherExplorer.r == current.r then
-								if otherExplorer.id ~= explorer.id then -- Ігноруємо самого себе
-									hasOtherExplorer = true
-									break
-								end
-							end
-						end
-					end
-					if hasOtherExplorer then
-						break
-					end
-				end
+				-- ВИПРАВЛЕННЯ: Дозволяємо кілька дослідників на одному тайлі
+				-- Перевіряємо тільки, чи це не той самий дослідник
+				local hasSameExplorer = false
 
-				if not hasOtherExplorer then
+				-- Пропускаємо тільки якщо це той самий дослідник (вже стоїть на цьому тайлі)
+				if not hasSameExplorer then
 					-- Визначаємо тип тайла
 					local isWaterTile = tile.isWater or tile.type == "Water"
 					local isLandTile = not isWaterTile
@@ -685,25 +672,59 @@ function AtlantisGame:onPlayerSelectExplorer(player, explorerId)
 	return true
 end
 
-function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
-	print("🎯 [СЕРВЕР] onPlayerSelectExplorer викликано")
-	print("  Гравець:", player.Name)
-	print("  Запитує explorerId:", explorerId)
+function AtlantisGame:getExplorerCountOnTile(q, r)
+	local count = 0
 
-	if not self.isGameActive then
-		print("❌ [СЕРВЕР] Гра не активна!")
-		return false
+	for _, playerData in pairs(self.players) do
+		if playerData.explorers then
+			for _, explorer in ipairs(playerData.explorers) do
+				if explorer.q == q and explorer.r == r then
+					count = count + 1
+				end
+			end
+		end
 	end
 
-	if self.gameState ~= "main_game" then
-		print("❌ [СЕРВЕР] Не основна фаза гри!")
+	return count
+end
+
+function AtlantisGame:getExplorersOnTile(q, r)
+	local explorers = {}
+
+	for _, playerData in pairs(self.players) do
+		if playerData.explorers then
+			for _, explorer in ipairs(playerData.explorers) do
+				if explorer.q == q and explorer.r == r then
+					table.insert(explorers, {
+						player = explorer.player,
+						playerName = explorer.player.Name,
+						explorerId = explorer.id,
+						treasureValue = explorer.treasureValue,
+						hasEnteredWaterThisTurn = explorer.hasEnteredWaterThisTurn,
+					})
+				end
+			end
+		end
+	end
+
+	return explorers
+end
+
+function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
+	print("🎯 [СЕРВЕР] onPlayerSelectExplorer викликано")
+	print("  Гравець:", player.Name, "explorerId:", explorerId, "Q=", q, "R=", r)
+
+	if not self.isGameActive or self.gameState ~= "main_game" then
+		print("❌ [СЕРВЕР] Гра не активна або не основна фаза!")
 		return false
 	end
 
 	-- Перевіряємо чи хід гравця
-	local currentPlayer = self.turnManager:getCurrentPlayer()
-	if player ~= currentPlayer then
-		print("❌ [СЕРВЕР] Не ваш хід! Зараз ходить:", currentPlayer.Name)
+	if player ~= self.turnManager:getCurrentPlayer() then
+		print(
+			"❌ [СЕРВЕР] Не ваш хід! Зараз ходить:",
+			self.turnManager:getCurrentPlayer().Name
+		)
 		return false
 	end
 
@@ -711,6 +732,17 @@ function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
 	local playerData = self.players[player]
 	if not playerData then
 		print("❌ [СЕРВЕР] Дані гравця не знайдені!")
+		return false
+	end
+
+	local explorerCountOnTile = self:getExplorerCountOnTile(q, r)
+	local maxExplorersPerTile = 6
+
+	if explorerCountOnTile >= maxExplorersPerTile then
+		print(
+			"❌ [СЕРВЕР] Забагато дослідників на цьому тайлі! Ліміт:",
+			maxExplorersPerTile
+		)
 		return false
 	end
 
@@ -740,7 +772,7 @@ function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
 		return false
 	end
 
-	-- ВИПРАВЛЕННЯ: Перевіряємо, чи дослідник вже входив у воду цього ходу
+	-- Перевіряємо, чи дослідник вже входив у воду цього ходу
 	if explorer.hasEnteredWaterThisTurn then
 		print("❌ [СЕРВЕР] Цей дослідник вже входив у воду цього ходу!")
 

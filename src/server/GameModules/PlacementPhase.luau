@@ -109,25 +109,30 @@ function PlacementPhase:startPlayerTurn()
 		end
 	end
 end
+
+function PlacementPhase:countExplorersOnTile(q, r)
+	local count = 0
+
+	for _, playerData in pairs(self.playersData) do
+		if playerData.explorers then
+			for _, explorer in ipairs(playerData.explorers) do
+				if explorer.q == q and explorer.r == r then
+					count = count + 1
+				end
+			end
+		end
+	end
+
+	return count
+end
+
 -- Обработка размещения исследователя
 function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
 	if not self.isActive then
 		warn("❌ Фаза размещения не активна")
 		return false
 	end
-	--[[    if self:hasBoatOnTile(q, r) then
-        warn("❌ На этом тайле уже есть човен")
-        return false
-    end]]
-	--
-	if self:hasExplorerOnTile(q, r) then
-		warn("❌ На цьому тайлі вже є шукач")
-		self.networkManager:getGameStartEvent():FireClient(player, {
-			type = "error",
-			message = "❌ На цьому тайлі вже є шукач!",
-		})
-		return false
-	end
+
 	-- Проверяем, что ход правильного игрока
 	local currentPlayer = self.turnManager:getCurrentPlayer()
 	if player ~= currentPlayer then
@@ -141,6 +146,20 @@ function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
 		return false
 	end
 
+	-- НОВОЕ: Проверяем лимит размещения - МАКСИМУМ 1 исследователь на тайле во время фазы размещения
+	local explorersOnTile = self:countExplorersOnTile(q, r)
+	if explorersOnTile >= 1 then
+		warn(
+			"❌ На этом тайле уже есть исследователь! Фаза размещения - лимит 1 на тайле"
+		)
+		self.networkManager:getGameStartEvent():FireClient(player, {
+			type = "error",
+			message = "❌ На цьому тайлі вже є дослідник! Фаза розміщення - лиміт 1 дослідник на тайлі",
+		})
+		return false
+	end
+
+	-- Проверяем лимит сокровищ
 	if not canPlayerPlaceTreasureValue(playerData, treasureValue, self.playerTreasureLimits) then
 		warn("❌ Гравець", player.Name, "досяг ліміту для скарбів:", treasureValue)
 		return false
@@ -155,15 +174,6 @@ function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
 	-- Проверяем валидность сокровищ
 	if treasureValue < 1 or treasureValue > 5 then
 		warn("❌ Неверное значение сокровищ:", treasureValue)
-		return false
-	end
-
-	-- Проверяем лимит для этого значения сокровищ
-	if not canPlayerPlaceTreasureValue(self.playersData, treasureValue, self.playerTreasureLimits) then
-		warn(
-			"❌ Достигнут лимит для исследователей с сокровищами:",
-			treasureValue
-		)
 		return false
 	end
 
@@ -191,8 +201,6 @@ function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
 	table.insert(playerData.explorers, explorer)
 	playerData.explorersPlaced += 1
 
-	--self:createExplorerVisual(player, treasureValue, q, r, explorerId)
-
 	-- Уведомляем всех игроков
 	self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
 		type = "ExplorerPlaced",
@@ -204,7 +212,7 @@ function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
 		r = r,
 		treasureValue = treasureValue,
 		playersData = self:getPlayersDataForClients(),
-		playerTreasureLimits = self:getTreasureLimitsStatus(currentPlayer), -- Індивідуальні ліміти
+		playerTreasureLimits = self:getTreasureLimitsStatus(currentPlayer),
 	})
 
 	print(
@@ -216,10 +224,7 @@ function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
 		playerData.maxExplorers
 	)
 
-	-- ВИДАЛЕНО: проверка завершения хода игрока
-	-- ДОДАНО: всегда переходим к следующему игроку после размещения
 	self:moveToNextPlayer()
-
 	return true
 end
 
@@ -530,13 +535,6 @@ function PlacementPhase:handlePlaceBoat(player, q, r)
 		warn("❌ Тайл не найден: Q=", q, "R=", r)
 		return false
 	end
-
-	-- ВИПРАВЛЕНО: Перевіряємо атрибут Placeboat замість boat
-	--[[if targetTile:GetAttribute("Placeboat") ~= false then
-        warn("❌ На этот тайл нельзя ставить човен (Placeboat != true)")
-        return false
-    end]]
-	--
 
 	-- Проверяем не стоит ли уже човен
 	if self:hasBoatOnTile(q, r) then
