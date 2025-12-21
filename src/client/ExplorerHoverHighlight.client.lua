@@ -26,6 +26,10 @@ local availableTiles = {} -- Таблиця доступних для перем
 local tileHighlights = {} -- Підсвічування тайлів
 local isMovementMode = false
 
+-- ДОДАНО: Стан для підсвічування човна
+local currentHoveredBoat = nil
+local boatHighlight = nil
+
 -- Створення UI для відображення вибору
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "ExplorerSelectionUI"
@@ -139,7 +143,12 @@ end
 local function getExplorerModel(clickedObject)
 	local current = clickedObject
 	while current and current ~= workspace do
-		-- Шукаємо модель з атрибутом IsExplorer
+		-- Спочатку перевіряємо, чи це човен
+		if current:IsA("Model") and current:GetAttribute("IsBoat") == true then
+			return nil -- Ігноруємо кліки на човни
+		end
+
+		-- Потім шукаємо модель з атрибутом IsExplorer
 		if current:IsA("Model") and current:GetAttribute("IsExplorer") == true then
 			return current
 		end
@@ -155,36 +164,209 @@ local function getExplorerUnderCursor()
 		return nil
 	end
 
-	-- Шукаємо модель дослідника
-	local explorerModel = getExplorerModel(target)
-
-	if explorerModel then
-		local explorerId = explorerModel:GetAttribute("ExplorerId")
-		local explorerPlayer = explorerModel:GetAttribute("Player")
-
-		-- Перевіряємо обидва атрибути
-		if explorerId and explorerPlayer then
-			-- Преобразуем ID в число для согласованности с сервером
-			explorerId = tonumber(explorerId) or explorerId
-			print(
-				"🔍 Знайдено дослідника ID:",
-				explorerId,
-				"гравця:",
-				explorerPlayer,
-				"тип ID:",
-				type(explorerId)
-			)
-			return explorerModel
-		else
-			-- Логируем если атрибуты не полные
-			print("⚠️ Модель має IsExplorer=true, але відсутні атрибути:")
-			print("  ExplorerId:", explorerId)
-			print("  Player:", explorerPlayer)
-			return nil
+	-- Перевіряємо, чи це човен
+	local current = target
+	while current and current ~= workspace do
+		if current:IsA("Model") and current:GetAttribute("IsBoat") == true then
+			return nil -- Ігноруємо кліки на човни
 		end
+		current = current.Parent
+	end
+
+	-- Тепер шукаємо дослідника
+	current = target
+	while current and current ~= workspace do
+		if current:IsA("Model") and current:GetAttribute("IsExplorer") == true then
+			local explorerId = current:GetAttribute("ExplorerId")
+			local explorerPlayer = current:GetAttribute("Player")
+
+			if explorerId and explorerPlayer then
+				explorerId = tonumber(explorerId) or explorerId
+				print("🔍 Знайдено дослідника ID:", explorerId, "гравця:", explorerPlayer)
+				return current
+			end
+		end
+		current = current.Parent
 	end
 
 	return nil
+end
+
+-- ДОДАНО: Функція для отримання човна під курсором
+local function getBoatUnderCursor()
+	local target = mouse.Target
+	if not target then
+		return nil
+	end
+
+	local current = target
+	while current and current ~= workspace do
+		if current:IsA("Model") and current:GetAttribute("IsBoat") == true then
+			local boatId = current:GetAttribute("BoatId")
+			local boatPlayer = current:GetAttribute("Player")
+			local q = current:GetAttribute("Q")
+			local r = current:GetAttribute("R")
+
+			-- ДОДАТКОВА ПЕРЕВІРКА
+			print("🔍 ДЕТАЛЬНІ АТРИБУТИ ЧОВНА:")
+			print("  ID:", boatId, "тип:", typeof(boatId))
+			print("  Q:", q, "тип:", typeof(q))
+			print("  R:", r, "тип:", typeof(r))
+			print("  Player:", boatPlayer)
+
+			return current
+		end
+		current = current.Parent
+	end
+	return nil
+end
+
+-- ДОДАНО: Функція для підсвічування човна
+local function highlightBoatOnHover(boatModel, highlight)
+	if not boatModel or not boatModel:IsA("Model") then
+		return
+	end
+	local boatId = boatModel:GetAttribute("BoatId")
+	local boatPlayer = boatModel:GetAttribute("Player")
+
+	if not boatId or not boatPlayer then
+		print(
+			"⚠️ Човен не має всіх атрибутів, пропускаємо підсвічування"
+		)
+		return
+	end
+
+	-- Не підсвічуємо якщо вже є виділений дослідник
+	if selectedExplorer then
+		if boatHighlight and boatHighlight.Parent == boatModel then
+			boatHighlight:Destroy()
+			boatHighlight = nil
+			currentHoveredBoat = nil
+		end
+		return
+	end
+
+	if not highlight then
+		if boatHighlight and boatHighlight.Parent == boatModel then
+			boatHighlight:Destroy()
+			boatHighlight = nil
+		end
+		currentHoveredBoat = nil
+		return
+	end
+
+	-- Створюємо нове підсвічування для човна
+	local highlightObj = Instance.new("Highlight")
+	highlightObj.Name = "BoatHoverHighlight"
+
+	-- Вибираємо колір залежно від гравця
+	local boatPlayerName = boatModel:GetAttribute("Player") or "Unknown"
+	local isMyBoat = (boatPlayerName == player.Name)
+
+	if isMyBoat then
+		-- Синій для наших човнів
+		highlightObj.FillColor = Color3.fromRGB(0, 150, 255)
+		highlightObj.OutlineColor = Color3.fromRGB(0, 100, 200)
+	else
+		-- Золотий для чужих човнів
+		highlightObj.FillColor = Color3.fromRGB(255, 215, 0)
+		highlightObj.OutlineColor = Color3.fromRGB(218, 165, 32)
+	end
+
+	highlightObj.FillTransparency = 0.6
+	highlightObj.OutlineTransparency = 0.3
+	highlightObj.Parent = boatModel
+
+	boatHighlight = highlightObj
+	currentHoveredBoat = boatModel
+
+	-- Додаємо ефект пульсації
+	coroutine.wrap(function()
+		while boatHighlight and boatHighlight.Parent == boatModel do
+			local tweenInfo1 = TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+			local tween1 = TweenService:Create(highlightObj, tweenInfo1, { FillTransparency = 0.4 })
+			tween1:Play()
+			tween1.Completed:Wait()
+
+			if not boatHighlight or boatHighlight.Parent ~= boatModel then
+				break
+			end
+
+			local tweenInfo2 = TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+			local tween2 = TweenService:Create(highlightObj, tweenInfo2, { FillTransparency = 0.8 })
+			tween2:Play()
+			tween2.Completed:Wait()
+		end
+	end)()
+end
+
+-- ДОДАНО: Функція для отримання інформації про човен для UI
+local function getBoatInfo(boat)
+	if not boat then
+		return "Немає інформації"
+	end
+
+	-- ДОДАНО: Перетворюємо атрибути на числа
+	local boatId = boat:GetAttribute("BoatId")
+	local boatIdNum = tonumber(boatId) or 0 -- Перетворюємо на число або 0 за замовчуванням
+
+	local playerName = boat:GetAttribute("Player") or "Невідомо"
+
+	local q = boat:GetAttribute("Q")
+	local qNum = tonumber(q) or 0 -- Перетворюємо на число
+
+	local r = boat:GetAttribute("R")
+	local rNum = tonumber(r) or 0 -- Перетворюємо на число
+
+	-- Рахуємо дослідників на човні
+	local explorersOnBoat = 0
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:GetAttribute("IsExplorer") then
+			local expQ = obj:GetAttribute("Q")
+			local expR = obj:GetAttribute("R")
+
+			-- Перетворюємо координати дослідника на числа
+			local expQNum = tonumber(expQ) or 0
+			local expRNum = tonumber(expR) or 0
+
+			if expQNum == qNum and expRNum == rNum then
+				explorersOnBoat = explorersOnBoat + 1
+			end
+		end
+	end
+
+	local capacityText = string.format("%d/3", explorersOnBoat)
+	local capacityColor = explorersOnBoat >= 3 and "❌" or "✅"
+
+	-- ВИПРАВЛЕННЯ: Використовуємо числа для форматування
+	return string.format(
+		"🚤 Човен #%d\n"
+			.. "👤 Власник: %s\n"
+			.. "📍 Координати: Q%d R%d\n"
+			.. "👥 Місткість: %s %s\n"
+			.. "\nℹ️ Натисніть на дослідника, щоб посадити на човен",
+		boatIdNum, -- число
+		playerName, -- рядок
+		qNum, -- число
+		rNum, -- число
+		capacityText, -- рядок
+		capacityColor -- рядок
+	)
+end
+
+-- Функція для відображення інформації про човен
+local function showBoatInfo(boat)
+	if not boat then
+		return
+	end
+
+	selectionFrame.Visible = true
+	selectionFrame.Size = UDim2.new(0, 320, 0, 140)
+	selectionFrame.Position = UDim2.new(0.5, -160, 0.05, 0)
+
+	titleLabel.Text = "🚤 ІНФОРМАЦІЯ ПРО ЧОВЕН"
+	infoLabel.Text = getBoatInfo(boat)
+	closeButton.Visible = true
 end
 
 local function getTileUnderCursor()
@@ -487,6 +669,30 @@ local function highlightAvailableTiles(data)
 	end
 end
 
+local function isBoat(object)
+	local current = object
+	while current and current ~= workspace do
+		if current:IsA("Model") and current:GetAttribute("IsBoat") == true then
+			return true
+		end
+		current = current.Parent
+	end
+	return false
+end
+
+local function getBoatOnTile(q, r)
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:IsA("Model") and obj:GetAttribute("IsBoat") then
+			local boatQ = obj:GetAttribute("Q")
+			local boatR = obj:GetAttribute("R")
+			if boatQ == q and boatR == r then
+				return obj
+			end
+		end
+	end
+	return nil
+end
+
 local function getHighlightedTileUnderCursor()
 	local target = mouse.Target
 	if target then
@@ -507,6 +713,13 @@ end
 local function clearSelectionState()
 	-- Очищаємо підсвічування тайлів
 	clearTileHighlights()
+
+	-- ДОДАНО: Очищаємо підсвічування човна
+	if boatHighlight then
+		boatHighlight:Destroy()
+		boatHighlight = nil
+	end
+	currentHoveredBoat = nil
 
 	-- Скидаємо вибір дослідника
 	if selectedExplorer then
@@ -534,6 +747,21 @@ local function clearSelectionState()
 
 	print("🧹 Стан вибору очищено")
 end
+
+local function getExplorersOnBoatCount(boatId)
+	if not boatId then
+		return 0
+	end
+
+	local count = 0
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:GetAttribute("IsExplorer") and obj:GetAttribute("BoatId") == boatId then
+			count = count + 1
+		end
+	end
+	return count
+end
+
 -- Обробник кліку по досліднику
 local function onExplorerClick(explorer)
 	if not isGamePhaseActive or not isMyTurn then
@@ -545,8 +773,6 @@ local function onExplorerClick(explorer)
 
 	local explorerPlayer = explorer:GetAttribute("Player")
 	local explorerId = explorer:GetAttribute("ExplorerId")
-
-	-- Преобразуем ID в число
 	explorerId = tonumber(explorerId) or explorerId
 
 	print("🖱️ Клік по досліднику:")
@@ -558,7 +784,6 @@ local function onExplorerClick(explorer)
 	if explorerPlayer ~= player.Name then
 		print("❌ Це не ваш дослідник!")
 
-		-- Показуємо повідомлення
 		infoLabel.Text =
 			"❌ Це дослідник іншого гравця!\nОберіть свого дослідника"
 		infoLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
@@ -569,23 +794,19 @@ local function onExplorerClick(explorer)
 				infoLabel.Text = "Оберіть дослідника для переміщення"
 			end
 		end)
-
 		return
 	end
 
 	-- Перевіряємо чи це вже обраний дослідник
 	local selectedId = selectedExplorer and selectedExplorer:GetAttribute("ExplorerId")
 	local selectedPlayer = selectedExplorer and selectedExplorer:GetAttribute("Player")
-
 	selectedId = selectedId and (tonumber(selectedId) or selectedId)
 
 	if selectedExplorer and explorer ~= selectedExplorer then
 		print(
-			"⚠️ Вже обрано іншого дослідника. Скасуйте поточний вибір, щоб обрати іншого."
+			"⚠️ Вже обрано іншого дослідника. Скасуйте поточний вибір."
 		)
-		print("  Обраний дослідник ID:", selectedId, "власник:", selectedPlayer)
 
-		-- Показуємо повідомлення
 		infoLabel.Text =
 			"⚠️ Вже обрано іншого дослідника!\nСкасуйте вибір, щоб обрати цього"
 		infoLabel.TextColor3 = Color3.fromRGB(255, 165, 0)
@@ -596,7 +817,6 @@ local function onExplorerClick(explorer)
 				infoLabel.Text = "Оберіть дослідника для переміщення"
 			end
 		end)
-
 		return
 	end
 
@@ -608,8 +828,8 @@ local function onExplorerClick(explorer)
 	else
 		-- Обираємо нового дослідника
 		print("🎯 Обрано дослідника ID:", explorerId, "гравця:", explorerPlayer)
-		clearSelectionState() -- Спочатку очищаємо старий стан
-		highlightSelectedExplorer(explorer, true) -- Потім підсвічуємо нового
+		clearSelectionState()
+		highlightSelectedExplorer(explorer, true)
 		SelectExplorerEvent:FireServer(explorerId)
 	end
 end
@@ -622,6 +842,10 @@ local function moveExplorerToTile(tileData)
 
 	local explorerId = selectedExplorer:GetAttribute("ExplorerId")
 
+	-- ДОДАНО: Перевіряємо чи є човен на цьому тайлі
+	local boat = getBoatOnTile(tileData.q, tileData.r)
+	local isBoatTile = boat ~= nil
+
 	print(
 		"🚶 Спроба перемістити дослідника",
 		explorerId,
@@ -629,9 +853,7 @@ local function moveExplorerToTile(tileData)
 		tileData.q,
 		"R=",
 		tileData.r,
-		"вартістю",
-		tileData.cost,
-		"монет"
+		isBoatTile and "(човен)" or ""
 	)
 
 	-- Відправляємо запит на сервер
@@ -843,11 +1065,8 @@ HighlightTilesEvent.OnClientEvent:Connect(function(data)
 	elseif data and data.type == "explorer_water_blocked" then
 		-- Випадок, коли дослідник вже входив у воду
 		print("💧 Дослідник заблокований для руху - вже входив у воду!")
-
-		-- Очищаємо підсвічування
 		clearTileHighlights()
 
-		-- Показуємо спеціальне повідомлення в UI
 		if selectedExplorer then
 			infoLabel.Text = string.format(
 				"📍 Дослідник #%d\n"
@@ -857,18 +1076,32 @@ HighlightTilesEvent.OnClientEvent:Connect(function(data)
 					.. "🎯 Оберіть іншого дослідника",
 				selectedExplorer:GetAttribute("ExplorerId")
 			)
-
-			-- Змінюємо колір тексту на червоний
 			infoLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
 
-			-- Автоматично скасовуємо вибір через 3 секунди
 			task.delay(3, function()
 				if selectionFrame.Visible then
-					clearTileHighlights()
-					highlightSelectedExplorer(selectedExplorer, false)
-					SelectExplorerEvent:FireServer(nil)
+					clearSelectionState()
+				end
+			end)
+		end
+	elseif data and data.type == "boat_full" then
+		-- НОВО: Обробка заповненого човна
+		print("🚤 Човен #" .. (data.boatId or "?") .. " заповнений!")
+		clearTileHighlights()
 
-					-- Повертаємо нормальний колір тексту
+		if selectedExplorer then
+			infoLabel.Text = string.format(
+				"📍 Дослідник #%d\n"
+					.. "❌ Човен #%d заповнений!\n"
+					.. "🚤 Максимум 3 дослідника на човні\n"
+					.. "🎯 Оберіть інший тайл або іншого дослідника",
+				data.explorerId or selectedExplorer:GetAttribute("ExplorerId"),
+				data.boatId or "?"
+			)
+			infoLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+
+			task.delay(3, function()
+				if selectionFrame.Visible then
 					infoLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
 					infoLabel.Text = "Оберіть дослідника для переміщення"
 				end
@@ -879,25 +1112,46 @@ end)
 
 -- Додайте цю функцію після інших функцій
 
--- Основний цикл для відстеження наведення
+-- ДОДАНО: Основний цикл для відстеження наведення на човни та дослідників
 RunService.Heartbeat:Connect(function()
 	-- Перевіряємо чи активна фаза гри
-	if not isGamePhaseActive or not isMyTurn then
+	if not isGamePhaseActive then
 		if currentHoveredExplorer then
 			highlightExplorerOnHover(currentHoveredExplorer, false)
+		end
+		if currentHoveredBoat then
+			highlightBoatOnHover(currentHoveredBoat, false)
 		end
 		return
 	end
 
-	local hoveredExplorer = getExplorerUnderCursor()
+	-- ДОДАНО: Спочатку перевіряємо човен
+	local hoveredBoat = getBoatUnderCursor()
 
-	if hoveredExplorer and hoveredExplorer ~= currentHoveredExplorer then
-		-- Навели на нового дослідника
-		highlightExplorerOnHover(currentHoveredExplorer, false)
-		highlightExplorerOnHover(hoveredExplorer, true)
-	elseif not hoveredExplorer and currentHoveredExplorer then
-		-- Зійшли з дослідника
-		highlightExplorerOnHover(currentHoveredExplorer, false)
+	if hoveredBoat and hoveredBoat ~= currentHoveredBoat then
+		-- Навели на новий човен
+		highlightBoatOnHover(currentHoveredBoat, false)
+		highlightBoatOnHover(hoveredBoat, true)
+		showBoatInfo(hoveredBoat)
+	elseif not hoveredBoat and currentHoveredBoat then
+		-- Зійшли з човна
+		highlightBoatOnHover(currentHoveredBoat, false)
+		currentHoveredBoat = nil
+		selectionFrame.Visible = false
+	end
+
+	-- Потім перевіряємо дослідників (тільки якщо не на човні)
+	if not hoveredBoat and isMyTurn then
+		local hoveredExplorer = getExplorerUnderCursor()
+
+		if hoveredExplorer and hoveredExplorer ~= currentHoveredExplorer then
+			-- Навели на нового дослідника
+			highlightExplorerOnHover(currentHoveredExplorer, false)
+			highlightExplorerOnHover(hoveredExplorer, true)
+		elseif not hoveredExplorer and currentHoveredExplorer then
+			-- Зійшли з дослідника
+			highlightExplorerOnHover(currentHoveredExplorer, false)
+		end
 	end
 end)
 
@@ -910,6 +1164,15 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		local target = mouse.Target
 		if target then
+			-- ДОДАНО: Спочатку перевіряємо чи це човен
+			local boat = getBoatUnderCursor()
+			if boat then
+				-- Показуємо інформацію про човен
+				showBoatInfo(boat)
+				return
+			end
+
+			-- Потім перевіряємо чи це дослідник
 			local explorer = getExplorerUnderCursor()
 			if explorer then
 				onExplorerClick(explorer)
@@ -940,8 +1203,13 @@ Players.PlayerRemoving:Connect(function(leftPlayer)
 			selectionHighlight:Destroy()
 			selectionHighlight = nil
 		end
+		if boatHighlight then
+			boatHighlight:Destroy()
+			boatHighlight = nil
+		end
 		clearTileHighlights()
 		currentHoveredExplorer = nil
+		currentHoveredBoat = nil
 		selectedExplorer = nil
 		selectionFrame.Visible = false
 	end
@@ -1127,13 +1395,112 @@ local function updateExplorerPosition(explorer, q, r)
 	end
 end
 
+local function updateExplorerPositionOnBoat(explorer, q, r, boatId)
+	if not explorer or not explorer:IsA("Model") then
+		return
+	end
+
+	-- Знаходимо човен за ID
+	local boat = nil
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:IsA("Model") and obj:GetAttribute("IsBoat") and obj:GetAttribute("BoatId") == boatId then
+			boat = obj
+			break
+		end
+	end
+
+	if not boat then
+		-- Якщо човен не знайдений за ID, шукаємо за координатами
+		boat = getBoatOnTile(q, r)
+	end
+
+	if boat then
+		print("🚤 Дослідник сів на човен #" .. tostring(boatId))
+
+		-- Рахуємо скільки дослідників вже на цьому човні
+		local explorersOnBoat = 0
+		for _, obj in ipairs(workspace:GetChildren()) do
+			if obj:GetAttribute("IsExplorer") then
+				local expQ = obj:GetAttribute("Q")
+				local expR = obj:GetAttribute("R")
+				if expQ == q and expR == r then
+					explorersOnBoat = explorersOnBoat + 1
+				end
+			end
+		end
+
+		local explorerIndex = explorersOnBoat
+		local maxExplorersPerBoat = 3
+
+		if explorerIndex <= maxExplorersPerBoat then
+			-- Позиціонуємо на човні зі зміщенням
+			local boatPosition = boat.PrimaryPart.Position
+			local baseHeight = 2 -- Базова висота над човном
+
+			-- Розраховуємо зміщення по колу
+			local angle = (explorerIndex - 1) * (360 / maxExplorersPerBoat)
+			local radius = 1.2 -- Радіус на човні
+
+			local offsetX = math.cos(math.rad(angle)) * radius
+			local offsetZ = math.sin(math.rad(angle)) * radius
+
+			local explorerPosition =
+				Vector3.new(boatPosition.X + offsetX, boatPosition.Y + baseHeight, boatPosition.Z + offsetZ)
+
+			local rotatedCFrame = CFrame.new(explorerPosition) * CFrame.Angles(0, math.rad(90 + angle), 0)
+			explorer:SetPrimaryPartCFrame(rotatedCFrame)
+
+			-- Додаємо спеціальний ефект для дослідників на човні
+			local boatEffect = explorer:FindFirstChild("BoatEffect")
+			if not boatEffect then
+				boatEffect = Instance.new("ParticleEmitter")
+				boatEffect.Name = "BoatEffect"
+				boatEffect.Color = ColorSequence.new(Color3.fromRGB(0, 150, 255))
+				boatEffect.Size = NumberSequence.new(0.3)
+				boatEffect.Transparency = NumberSequence.new(0.7)
+				boatEffect.Lifetime = NumberRange.new(1, 2)
+				boatEffect.Rate = 15
+				boatEffect.Speed = NumberRange.new(1)
+				boatEffect.Parent = explorer.PrimaryPart
+			end
+
+			-- Оновлюємо атрибути
+			explorer:SetAttribute("Q", q)
+			explorer:SetAttribute("R", r)
+			explorer:SetAttribute("IsOnWater", true)
+			explorer:SetAttribute("OnBoat", true)
+			explorer:SetAttribute("BoatId", boatId)
+
+			print(
+				"📍 Дослідник розміщений на човні #"
+					.. boatId
+					.. ", позиція: "
+					.. explorerIndex
+					.. "/"
+					.. maxExplorersPerBoat
+			)
+		else
+			print("❌ Забагато дослідників на човні!")
+		end
+	else
+		print("❌ Човен не знайдений для позиціонування дослідника")
+	end
+end
+
 -- Додайте після інших обробників подій
 UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
 	if data.type == "ExplorerMoved" then
-		-- Знаходимо дослідника в робочому просторі
+		-- Знаходимо дослідника
 		for _, obj in ipairs(workspace:GetChildren()) do
 			if obj:GetAttribute("IsExplorer") and obj:GetAttribute("ExplorerId") == data.explorerId then
-				updateExplorerPosition(obj, data.q, data.r)
+				if data.isBoatTile and data.boatId then
+					-- Дослідник сів на човен
+					updateExplorerPositionOnBoat(obj, data.q, data.r, data.boatId)
+				else
+					-- Звичайне переміщення
+					updateExplorerPosition(obj, data.q, data.r)
+				end
+
 				break
 			end
 		end

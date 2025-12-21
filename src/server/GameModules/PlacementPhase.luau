@@ -150,12 +150,17 @@ function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
 	local explorersOnTile = self:countExplorersOnTile(q, r)
 	if explorersOnTile >= 1 then
 		warn(
-			"❌ На этом тайле уже есть исследователь! Фаза размещения - лимит 1 на тайле"
+			"❌ На этом тайле уже есть исследователь! Фаза размещения - лиміт 1 на тайле"
 		)
-		self.networkManager:getGameStartEvent():FireClient(player, {
-			type = "error",
-			message = "❌ На цьому тайлі вже є дослідник! Фаза розміщення - лиміт 1 дослідник на тайлі",
-		})
+
+		-- Отправляем ошибку клиенту
+		if self.networkManager then
+			self.networkManager:getGameStartEvent():FireClient(player, {
+				type = "error",
+				message = "❌ На цьому тайлі вже є дослідник! Фаза розміщення - лиміт 1 дослідник на тайлі",
+			})
+		end
+
 		return false
 	end
 
@@ -544,9 +549,18 @@ function PlacementPhase:handlePlaceBoat(player, q, r)
 
 	print("🚤 Игрок", player.Name, "размещает човен на Q=", q, "R=", r)
 
+	local boat = self:createBoatVisual(player, q, r)
+	local boatId = boat and boat:GetAttribute("BoatId") -- ПОЛУЧАЕМ ID ИЗ ЛОДКИ
+
+	-- Если не удалось получить, используем счетчик
+	if not boatId then
+		boatId = self.boatsPlaced[player] or 1
+	end
+
+	self.boatsPlaced[player] = (self.boatsPlaced[player] or 0) + 1
+
 	-- Создаем човен
 	self:createBoatVisual(player, q, r)
-	self.boatsPlaced[player] = (self.boatsPlaced[player] or 0) + 1
 
 	-- Убираем подсветку с этого тайла
 	local highlight = targetTile:FindFirstChild("BoatHighlight")
@@ -558,10 +572,11 @@ function PlacementPhase:handlePlaceBoat(player, q, r)
 	self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
 		type = "BoatPlaced",
 		playerName = player.Name,
-		boatsPlaced = self.boatsPlaced[player],
+		boatsPlaced = self.boatsPlaced[player] or 0,
 		maxBoats = self.boatsPerPlayer,
 		q = q,
 		r = r,
+		boatId = boatId,
 		playersData = self:getPlayersBoatsData(),
 	})
 
@@ -668,7 +683,22 @@ function PlacementPhase:createBoatVisual(player, q, r)
 		return
 	end
 
-	-- Ищем тайл
+	-- ВАЖЛИВО: Генеруємо унікальний ID для човна
+	local boatId = 1 -- Завжди починаємо з 1
+
+	-- Рахуємо скільки човнів вже створено
+	local boatCount = 0
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:IsA("Model") and obj:GetAttribute("IsBoat") then
+			boatCount = boatCount + 1
+		end
+	end
+
+	boatId = boatCount + 1 -- Унікальний ID
+
+	print("🆔 Створюємо човен з ID:", boatId, "для гравця:", player.Name)
+
+	-- Іщем тайл
 	local map = workspace:WaitForChild("Map")
 	local targetTile = nil
 
@@ -684,51 +714,88 @@ function PlacementPhase:createBoatVisual(player, q, r)
 	end
 
 	if not targetTile then
+		warn("❌ Тайл не найден: Q=", q, "R=", r)
 		return
 	end
 
 	-- Создаем човен
 	local boat = self.boatTemplate:Clone()
-	boat.Name = "Boat_" .. player.Name .. "_" .. q .. "_" .. r
 
-	-- Позиционируем на тайле
+	-- ВАЖЛИВО: Правильне ім'я з ID
+	boat.Name = "Boat_" .. boatId .. "_" .. player.Name .. "_" .. q .. "_" .. r
+
 	local primaryPart = boat.PrimaryPart
 
-	-- Якщо немає PrimaryPart, створюємо його
 	if not primaryPart then
 		for _, part in ipairs(boat:GetDescendants()) do
 			if part:IsA("BasePart") then
 				primaryPart = part
-
 				boat.PrimaryPart = primaryPart
 				break
 			end
 		end
 	end
 
-	if primaryPart then
-		local tileTopY = targetTile.Position.Y + targetTile.Size.Y / 2
-		local boatBottomY = primaryPart.Position.Y - primaryPart.Size.Y / 2
-		local yOffset = tileTopY - boatBottomY + 0.1
-
-		boat:PivotTo(targetTile.CFrame + Vector3.new(0, yOffset, 0))
-	else
-		boat:PivotTo(targetTile.CFrame + Vector3.new(0, 2, 0))
-		warn(
-			"⚠️ PrimaryPart не знайдено, використовується резервне позиціонування"
-		)
+	if not boat.PrimaryPart then
+		warn("❌ У модели човна нет PrimaryPart")
+		boat:Destroy()
+		return
 	end
 
-	-- Добавляем атрибуты
+	-- Позиционируем на тайле
+	local tileTopY = targetTile.Position.Y + targetTile.Size.Y / 2
+	local boatBottomY = primaryPart.Position.Y - primaryPart.Size.Y / 2
+	local yOffset = tileTopY - boatBottomY + 0.3
+
+	-- Додаємо обертання на 180 градусів
+	local rotatedCFrame = (targetTile.CFrame + Vector3.new(0, yOffset, 0)) * CFrame.Angles(math.rad(180), 0, 0)
+	boat:PivotTo(rotatedCFrame)
+
+	-- ВАЖЛИВО: Встановлюємо всі атрибути
+	boat:SetAttribute("BoatId", boatId)
 	boat:SetAttribute("IsBoat", true)
+	boat:SetAttribute("Player", player.Name)
 	boat:SetAttribute("Q", q)
 	boat:SetAttribute("R", r)
 
 	-- Помещаем в workspace
 	boat.Parent = workspace
 
-	print("🚤 Создан визуал човна для", player.Name, "на Q=", q, "R=", r)
+	-- Эффект появления
 	self:createBoatAppearanceEffect(boat)
+
+	print(
+		"🚤 Создан визуал човна #" .. tostring(boatId) .. " для",
+		player.Name,
+		"на Q=",
+		q,
+		"R=",
+		r
+	)
+
+	-- Перевіряємо, чи правильно встановлені атрибути
+	task.delay(0.2, function()
+		if boat and boat.Parent then
+			print("🔍 ПОВНА ПЕРЕВІРКА атрибутів човна після створення:")
+			print("  Назва:", boat.Name)
+			print("  BoatId:", boat:GetAttribute("BoatId"))
+			print("  IsBoat:", boat:GetAttribute("IsBoat"))
+			print("  Q:", boat:GetAttribute("Q"), "Тип:", typeof(boat:GetAttribute("Q")))
+			print("  R:", boat:GetAttribute("R"), "Тип:", typeof(boat:GetAttribute("R")))
+			print("  Player:", boat:GetAttribute("Player"))
+
+			-- Перевірка координат на числа
+			local qNum = tonumber(boat:GetAttribute("Q"))
+			local rNum = tonumber(boat:GetAttribute("R"))
+			if qNum == nil or rNum == nil then
+				print("❌ КООРДИНАТИ НЕ ЧИСЛА!")
+				boat:SetAttribute("Q", tonumber(q) or 0)
+				boat:SetAttribute("R", tonumber(r) or 0)
+			end
+		end
+	end)
+
+	return boat
 end
 
 function PlacementPhase:createBoatAppearanceEffect(boat)

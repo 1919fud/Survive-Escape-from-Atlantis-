@@ -116,21 +116,27 @@ function TurnManager:useAction(player)
 
 	self.playerActionsUsed[player] = actionsUsed + 1
 
-	-- Перевіряємо чи закінчились монети
-	if self.playerActionsUsed[player] >= self.maxActions then
-		print("✅ Гравець", player.Name, "використав усі монети. Кінець ходу.")
-	end
-
 	return true
 end
 
 function TurnManager:useMultipleActions(player, count)
-	-- Використати кілька дій одразу
-	for i = 1, count do
-		if not self:useAction(player) then
-			return false
-		end
+	-- Проверяем, достаточно ли действий
+	local actionsUsed = self.playerActionsUsed[player] or 0
+
+	if actionsUsed + count > self.maxActions then
+		warn("❌ Недостатньо дій! Потрібно:", count, "Є:", self.maxActions - actionsUsed)
+		return false
 	end
+
+	self.playerActionsUsed[player] = actionsUsed + count
+
+	print(
+		"💰 Використано",
+		count,
+		"дій. Залишилось:",
+		self.maxActions - self.playerActionsUsed[player]
+	)
+
 	return true
 end
 
@@ -182,7 +188,7 @@ function TurnManager:getTurnInfo()
 		placementCompleted = self.placementCompleted,
 		gamePhase = self.gamePhase,
 		remainingActions = remainingActions,
-		maxActions = self.turnActionsLeft,
+		maxActions = self.maxActions,
 	}
 end
 

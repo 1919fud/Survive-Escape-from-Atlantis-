@@ -748,12 +748,25 @@ local function spawnBoatAppearanceEffect(boat)
 	game:GetService("Debris"):AddItem(highlight, 2)
 end
 
-local function createBoatVisual(playerName, q, r)
+local function createBoatVisual(playerName, q, r, boatIdFromServer)
 	-- Ищем шаблон лодки
 	local boatTemplate = ReplicatedStorage:FindFirstChild("Boat")
 	if not boatTemplate then
 		warn("❌ Не найден шаблон Boat в ReplicatedStorage")
 		return
+	end
+
+	-- ВАЖЛИВО: Знаходимо унікальний ID
+	local boatId = boatIdFromServer
+	if not boatId then
+		-- Рахуємо скільки човнів вже створено
+		local boatCount = 0
+		for _, obj in ipairs(workspace:GetChildren()) do
+			if obj:IsA("Model") and obj:GetAttribute("IsBoat") then
+				boatCount = boatCount + 1
+			end
+		end
+		boatId = boatCount + 1
 	end
 
 	-- Ищем тайл
@@ -813,11 +826,22 @@ local function createBoatVisual(playerName, q, r)
 
 	boat:PivotTo(rotatedCFrame)
 
+	if not boatId then
+		local boatCount = 0
+		for _, obj in ipairs(workspace:GetChildren()) do
+			if obj:IsA("Model") and obj:GetAttribute("IsBoat") then
+				boatCount = boatCount + 1
+			end
+		end
+		boatId = boatCount + 1
+	end
 	-- Добавляем атрибуты
+
 	boat:SetAttribute("IsBoat", true)
 	boat:SetAttribute("Player", playerName)
 	boat:SetAttribute("Q", q)
 	boat:SetAttribute("R", r)
+	boat:SetAttribute("BoatId", boatId)
 
 	-- Помещаем в workspace
 	boat.Parent = workspace
@@ -841,11 +865,13 @@ UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
 			end
 		end
 		local explorerId = data.explorerId or data.explorerCount
-		if not explorerId then
+		--[[if not explorerId then
 			explorerId = data.explorerCount
 		end
-		-- Створюємо візуал дослідника (для всіх гравців)
+		-- Створюємо візуал дослідника (для всіх гравців)]]
+		--
 		createExplorerVisual(data.playerName, data.treasureValue, data.q, data.r, explorerId)
+		--
 
 		-- Оновлюємо інформацію про ліміти якщо вона прийшла
 		if data.playerTreasureLimits then
@@ -858,7 +884,8 @@ UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
 			playerBoatsPlaced = data.boatsPlaced or 0
 			progressLabel.Text = "Ваші човни: " .. playerBoatsPlaced .. "/" .. playerMaxBoats
 		end
-		createBoatVisual(data.playerName, data.q, data.r)
+		createBoatVisual(data.playerName, data.q, data.r, data.boatId)
+		--
 		-- Оновлюємо загальну інформацію
 		if data.playersData then
 			updateQueueDisplay(nil, data.playersData) -- Оновлюємо відображення черги
