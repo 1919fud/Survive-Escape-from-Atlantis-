@@ -101,7 +101,10 @@ local function updateSelectionUI(explorer)
 	local r = explorer:GetAttribute("R") or 0
 	local isOnWater = explorer:GetAttribute("IsOnWater") or false
 
-	-- Додаємо інформацію про правила руху
+	-- Додаємо інформацію про можливість сісти на човен
+	local boatHint =
+		"\n🚤 Порада: Можна натиснути на човен, щоб посадити цього дослідника"
+
 	local rulesText = ""
 	if isOnWater then
 		rulesText = "\n🌊 Зараз на воді:\n"
@@ -122,20 +125,20 @@ local function updateSelectionUI(explorer)
 			.. "💰 Скарби: %d\n"
 			.. "🗺️ Координати: Q%d R%d\n"
 			.. "💧 Стан: %s\n"
+			.. "%s\n"
 			.. "%s\n\n"
-			.. "🖱️ Натисніть на доступний тайл для переміщення",
+			.. "🖱️ Натисніть на доступний тайл або човен для переміщення",
 		explorerId,
 		treasureValue,
 		q,
 		r,
 		isOnWater and "На воді 🌊" or "На суші ⛰️",
-		rulesText
+		rulesText,
+		boatHint
 	)
 
 	selectionFrame.Visible = true
-	selectionFrame.Size = UDim2.new(0, 350, 0, 180) -- Збільшуємо розмір для нового тексту
-
-	-- Оновлюємо позицію кнопки
+	selectionFrame.Size = UDim2.new(0, 350, 0, 200)
 	closeButton.Position = UDim2.new(0.5, -40, 1, -30)
 end
 
@@ -207,17 +210,18 @@ local function getBoatUnderCursor()
 			local q = current:GetAttribute("Q")
 			local r = current:GetAttribute("R")
 
-			-- ДОДАТКОВА ПЕРЕВІРКА
-			print("🔍 ДЕТАЛЬНІ АТРИБУТИ ЧОВНА:")
-			print("  ID:", boatId, "тип:", typeof(boatId))
-			print("  Q:", q, "тип:", typeof(q))
-			print("  R:", r, "тип:", typeof(r))
-			print("  Player:", boatPlayer)
-
-			return current
+			-- Додаткова перевірка
+			if boatId and q and r then
+				--print("🔍 Знайдено човен для переміщення дослідника:")
+				--print("  ID:", boatId, "Власник:", boatPlayer, "Q:", q, "R:", r)
+				return current
+			else
+				print("⚠️ Човен має неповні атрибути:", boatId, q, r)
+			end
 		end
 		current = current.Parent
 	end
+
 	return nil
 end
 
@@ -299,7 +303,125 @@ local function highlightBoatOnHover(boatModel, highlight)
 		end
 	end)()
 end
+local function clearTileHighlights()
+	for _, highlight in ipairs(tileHighlights) do
+		if highlight and highlight.Parent then
+			-- Видаляємо BillboardGui з вартістю
+			local tile = highlight.Parent
+			local billboard = tile:FindFirstChild("CostDisplay")
+			if billboard then
+				billboard:Destroy()
+			end
 
+			highlight:Destroy()
+		end
+	end
+	tileHighlights = {}
+	isMovementMode = false
+end
+local function highlightSelectedExplorer(explorerModel, highlight)
+	if not explorerModel then
+		return
+	end
+
+	if not highlight then
+		-- Вимикаємо підсвічування
+		if selectionHighlight then
+			selectionHighlight:Destroy()
+			selectionHighlight = nil
+		end
+
+		-- ВАЖЛИВО: також прибираємо підсвічування наведення з цього дослідника
+		if currentHighlight and currentHighlight.Parent == explorerModel then
+			currentHighlight:Destroy()
+			currentHighlight = nil
+		end
+
+		selectedExplorer = nil
+		currentHoveredExplorer = nil -- ДОДАНО: скидаємо і наведення
+		updateSelectionUI(nil)
+		print("🔴 Підсвічування вибраного дослідника вимкнено")
+		return
+	end
+
+	-- Спочатку очищаємо старе підсвічування
+	if selectionHighlight then
+		selectionHighlight:Destroy()
+		selectionHighlight = nil
+	end
+
+	-- Створюємо нове підсвічування для обраного
+	local highlightObj = Instance.new("Highlight")
+	highlightObj.Name = "ExplorerSelectedHighlight"
+	highlightObj.FillColor = Color3.fromRGB(0, 150, 255) -- Синій для обраного
+	highlightObj.OutlineColor = Color3.fromRGB(0, 100, 200)
+	highlightObj.FillTransparency = 0.5
+	highlightObj.OutlineTransparency = 0
+	highlightObj.Parent = explorerModel
+
+	selectionHighlight = highlightObj
+	selectedExplorer = explorerModel
+
+	-- Ефект пульсації
+	coroutine.wrap(function()
+		while selectionHighlight and selectionHighlight.Parent == explorerModel do
+			local tweenInfo1 = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+			local tween1 = TweenService:Create(highlightObj, tweenInfo1, { FillTransparency = 0.3 })
+			tween1:Play()
+			tween1.Completed:Wait()
+
+			if not selectionHighlight or selectionHighlight.Parent ~= explorerModel then
+				break
+			end
+
+			local tweenInfo2 = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+			local tween2 = TweenService:Create(highlightObj, tweenInfo2, { FillTransparency = 0.7 })
+			tween2:Play()
+			tween2.Completed:Wait()
+		end
+	end)()
+
+	-- Оновлюємо UI
+	updateSelectionUI(explorerModel)
+	print("🔵 Підсвічування вибраного дослідника увімкнено")
+end
+local function clearSelectionState()
+	-- Очищаємо підсвічування тайлів
+	clearTileHighlights()
+
+	-- ДОДАНО: Очищаємо підсвічування човна
+	if boatHighlight then
+		boatHighlight:Destroy()
+		boatHighlight = nil
+	end
+	currentHoveredBoat = nil
+
+	-- Скидаємо вибір дослідника
+	if selectedExplorer then
+		highlightSelectedExplorer(selectedExplorer, false)
+		-- ДОДАНО: також скидаємо підсвічування наведення
+		if currentHighlight and currentHighlight.Parent == selectedExplorer then
+			currentHighlight:Destroy()
+			currentHighlight = nil
+		end
+	end
+
+	-- Скидаємо стан
+	isMovementMode = false
+	currentHoveredExplorer = nil
+	selectedExplorer = nil
+
+	-- Ховаємо UI
+	selectionFrame.Visible = false
+
+	-- Повертаємо стандартний текст
+	if infoLabel then
+		infoLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+		infoLabel.Text = "Оберіть дослідника для переміщення"
+	end
+
+	print("🧹 Стан вибору очищено")
+end
 -- ДОДАНО: Функція для отримання інформації про човен для UI
 local function getBoatInfo(boat)
 	if not boat then
@@ -360,13 +482,65 @@ local function showBoatInfo(boat)
 		return
 	end
 
+	-- Отримуємо інформацію про човен
+	local boatInfo = getBoatInfo(boat)
+
+	-- Перевіряємо, чи є обраний дослідник
+	local hasSelectedExplorer = selectedExplorer ~= nil
+
 	selectionFrame.Visible = true
-	selectionFrame.Size = UDim2.new(0, 320, 0, 140)
+	selectionFrame.Size = UDim2.new(0, 320, 0, hasSelectedExplorer and 180 or 140)
 	selectionFrame.Position = UDim2.new(0.5, -160, 0.05, 0)
 
 	titleLabel.Text = "🚤 ІНФОРМАЦІЯ ПРО ЧОВЕН"
-	infoLabel.Text = getBoatInfo(boat)
+
+	if hasSelectedExplorer then
+		infoLabel.Text = boatInfo .. "\n\n🎯 Оберіть дію:"
+
+		-- Додаємо кнопку "Посадити дослідника"
+		local actionButton = selectionFrame:FindFirstChild("BoardBoatButton")
+		if not actionButton then
+			actionButton = Instance.new("TextButton")
+			actionButton.Name = "BoardBoatButton"
+			actionButton.Size = UDim2.new(0, 180, 0, 30)
+			actionButton.Position = UDim2.new(0.5, -90, 0.8, 0)
+			actionButton.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+			actionButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+			actionButton.Text = "🚤 ПОСАДИТИ ДОСЛІДНИКА"
+			actionButton.TextSize = 12
+			actionButton.Font = Enum.Font.GothamBold
+			actionButton.Parent = selectionFrame
+
+			local UICornerBtn = Instance.new("UICorner")
+			UICornerBtn.CornerRadius = UDim.new(0, 4)
+			UICornerBtn.Parent = actionButton
+
+			-- Обробник кліку на кнопку
+			actionButton.MouseButton1Click:Connect(function()
+				local boatQ = boat:GetAttribute("Q")
+				local boatR = boat:GetAttribute("R")
+				local boatId = boat:GetAttribute("BoatId")
+				local explorerId = selectedExplorer:GetAttribute("ExplorerId")
+
+				print("🚤 Користувач клікнув посадити дослідника на човен")
+				MoveExplorerEvent:FireServer(explorerId, boatQ, boatR)
+				clearSelectionState()
+			end)
+		end
+		actionButton.Visible = true
+	else
+		infoLabel.Text = boatInfo
+			.. "\n\nℹ️ Оберіть дослідника, щоб посадити на човен"
+
+		-- Ховаємо кнопку, якщо немає обраного дослідника
+		local actionButton = selectionFrame:FindFirstChild("BoardBoatButton")
+		if actionButton then
+			actionButton.Visible = false
+		end
+	end
+
 	closeButton.Visible = true
+	closeButton.Position = UDim2.new(0.5, -40, 1, -30)
 end
 
 local function getTileUnderCursor()
@@ -440,89 +614,6 @@ local function highlightExplorerOnHover(explorerModel, highlight)
 end
 
 -- Підсвічування обраного дослідника
-local function highlightSelectedExplorer(explorerModel, highlight)
-	if not explorerModel then
-		return
-	end
-
-	if not highlight then
-		-- Вимикаємо підсвічування
-		if selectionHighlight then
-			selectionHighlight:Destroy()
-			selectionHighlight = nil
-		end
-
-		-- ВАЖЛИВО: також прибираємо підсвічування наведення з цього дослідника
-		if currentHighlight and currentHighlight.Parent == explorerModel then
-			currentHighlight:Destroy()
-			currentHighlight = nil
-		end
-
-		selectedExplorer = nil
-		currentHoveredExplorer = nil -- ДОДАНО: скидаємо і наведення
-		updateSelectionUI(nil)
-		print("🔴 Підсвічування вибраного дослідника вимкнено")
-		return
-	end
-
-	-- Спочатку очищаємо старе підсвічування
-	if selectionHighlight then
-		selectionHighlight:Destroy()
-		selectionHighlight = nil
-	end
-
-	-- Створюємо нове підсвічування для обраного
-	local highlightObj = Instance.new("Highlight")
-	highlightObj.Name = "ExplorerSelectedHighlight"
-	highlightObj.FillColor = Color3.fromRGB(0, 150, 255) -- Синій для обраного
-	highlightObj.OutlineColor = Color3.fromRGB(0, 100, 200)
-	highlightObj.FillTransparency = 0.5
-	highlightObj.OutlineTransparency = 0
-	highlightObj.Parent = explorerModel
-
-	selectionHighlight = highlightObj
-	selectedExplorer = explorerModel
-
-	-- Ефект пульсації
-	coroutine.wrap(function()
-		while selectionHighlight and selectionHighlight.Parent == explorerModel do
-			local tweenInfo1 = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-			local tween1 = TweenService:Create(highlightObj, tweenInfo1, { FillTransparency = 0.3 })
-			tween1:Play()
-			tween1.Completed:Wait()
-
-			if not selectionHighlight or selectionHighlight.Parent ~= explorerModel then
-				break
-			end
-
-			local tweenInfo2 = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-			local tween2 = TweenService:Create(highlightObj, tweenInfo2, { FillTransparency = 0.7 })
-			tween2:Play()
-			tween2.Completed:Wait()
-		end
-	end)()
-
-	-- Оновлюємо UI
-	updateSelectionUI(explorerModel)
-	print("🔵 Підсвічування вибраного дослідника увімкнено")
-end
-
-local function clearTileHighlights()
-	for _, highlight in ipairs(tileHighlights) do
-		if highlight and highlight.Parent then
-			-- Видаляємо BillboardGui з вартістю
-			local tile = highlight.Parent
-			local billboard = tile:FindFirstChild("CostDisplay")
-			if billboard then
-				billboard:Destroy()
-			end
-
-			highlight:Destroy()
-		end
-	end
-	tileHighlights = {}
-	isMovementMode = false
-end
 
 local function createWaterEffect(tile)
 	if not tile:FindFirstChild("WaterEffect") then
@@ -710,44 +801,6 @@ local function getHighlightedTileUnderCursor()
 	return nil
 end
 
-local function clearSelectionState()
-	-- Очищаємо підсвічування тайлів
-	clearTileHighlights()
-
-	-- ДОДАНО: Очищаємо підсвічування човна
-	if boatHighlight then
-		boatHighlight:Destroy()
-		boatHighlight = nil
-	end
-	currentHoveredBoat = nil
-
-	-- Скидаємо вибір дослідника
-	if selectedExplorer then
-		highlightSelectedExplorer(selectedExplorer, false)
-		-- ДОДАНО: також скидаємо підсвічування наведення
-		if currentHighlight and currentHighlight.Parent == selectedExplorer then
-			currentHighlight:Destroy()
-			currentHighlight = nil
-		end
-	end
-
-	-- Скидаємо стан
-	isMovementMode = false
-	currentHoveredExplorer = nil
-	selectedExplorer = nil
-
-	-- Ховаємо UI
-	selectionFrame.Visible = false
-
-	-- Повертаємо стандартний текст
-	if infoLabel then
-		infoLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
-		infoLabel.Text = "Оберіть дослідника для переміщення"
-	end
-
-	print("🧹 Стан вибору очищено")
-end
-
 local function getExplorersOnBoatCount(boatId)
 	if not boatId then
 		return 0
@@ -768,6 +821,12 @@ local function onExplorerClick(explorer)
 		print("❌ Не ваш хід або фаза не активна!")
 		print("  isGamePhaseActive:", isGamePhaseActive)
 		print("  isMyTurn:", isMyTurn)
+		return
+	end
+
+	local boat = getBoatUnderCursor()
+	if boat then
+		print("⚠️ Клік на дослідника через човен - ігноруємо")
 		return
 	end
 
@@ -1060,6 +1119,12 @@ HighlightTilesEvent.OnClientEvent:Connect(function(data)
 	if data and data.type == "movement" then
 		print("📍 Отримано доступні тайли для переміщення")
 		highlightAvailableTiles(data)
+
+		-- Додаємо підказку про човни
+		if infoLabel then
+			infoLabel.Text = infoLabel.Text
+				.. "\n\n🚤 Також можна клікнути на човен безпосередньо!"
+		end
 	elseif data and data.type == "clear" then
 		clearTileHighlights()
 	elseif data and data.type == "explorer_water_blocked" then
@@ -1164,23 +1229,37 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		local target = mouse.Target
 		if target then
-			-- ДОДАНО: Спочатку перевіряємо чи це човен
+			-- 1. Спочатку перевіряємо чи це човен
 			local boat = getBoatUnderCursor()
-			if boat then
-				-- Показуємо інформацію про човен
-				showBoatInfo(boat)
+
+			-- Якщо це човен І обрано дослідника
+			if boat and selectedExplorer then
+				print("🚤 Клік на човен з обраним дослідником")
+
+				-- Отримуємо координати човна
+				local boatQ = boat:GetAttribute("Q")
+				local boatR = boat:GetAttribute("R")
+				local boatId = boat:GetAttribute("BoatId")
+
+				-- Отримуємо ID обраного дослідника
+				local explorerId = selectedExplorer:GetAttribute("ExplorerId")
+
+				-- Відправляємо на сервер запит на переміщення дослідника на човен
+				MoveExplorerEvent:FireServer(explorerId, boatQ, boatR)
+
+				-- Очищаємо вибір
+				clearSelectionState()
 				return
 			end
 
-			-- Потім перевіряємо чи це дослідник
+			-- 2. Потім перевіряємо чи це дослідник
 			local explorer = getExplorerUnderCursor()
 			if explorer then
 				onExplorerClick(explorer)
 			else
-				-- Перевіряємо, чи це підсвічений тайл
+				-- 3. Перевіряємо, чи це підсвічений тайл
 				local highlightedTile = getHighlightedTileUnderCursor()
 				if highlightedTile and selectedExplorer and isMovementMode then
-					-- Спроба перемістити дослідника на цей тайл
 					moveExplorerToTile(highlightedTile)
 				elseif selectedExplorer then
 					print(

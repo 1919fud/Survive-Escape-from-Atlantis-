@@ -560,7 +560,7 @@ function PlacementPhase:handlePlaceBoat(player, q, r)
 	self.boatsPlaced[player] = (self.boatsPlaced[player] or 0) + 1
 
 	-- Создаем човен
-	self:createBoatVisual(player, q, r)
+	--self:createBoatVisual(player, q, r)
 
 	-- Убираем подсветку с этого тайла
 	local highlight = targetTile:FindFirstChild("BoatHighlight")

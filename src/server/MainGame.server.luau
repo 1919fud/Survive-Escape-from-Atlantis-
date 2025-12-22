@@ -273,10 +273,10 @@ function AtlantisGame:getAvailableMovementTiles(explorer, maxSteps)
 			)
 		elseif tileData.isWater then
 			waterCount = waterCount + 1
-			print("    💧 Q=", tileData.q, "R=", tileData.r, "кроків:", tileData.steps)
+			--print("    💧 Q=", tileData.q, "R=", tileData.r, "кроків:", tileData.steps)
 		else
 			landCount = landCount + 1
-			print(
+			--[[print(
 				"    🌍 Q=",
 				tileData.q,
 				"R=",
@@ -285,7 +285,8 @@ function AtlantisGame:getAvailableMovementTiles(explorer, maxSteps)
 				tileData.tileType,
 				"кроків:",
 				tileData.steps
-			)
+			)]]
+			--
 		end
 	end
 
@@ -754,8 +755,8 @@ function AtlantisGame:getBoatIdAtPosition(q, r)
 			boatQ = tonumber(boatQ) or 0
 			boatR = tonumber(boatR) or 0
 
-			print("  Перевіряємо об'єкт:", obj.Name)
-			print("    Атрибути: Q=", boatQ, "R=", boatR, "BoatId=", boatId)
+			--print("  Перевіряємо об'єкт:", obj.Name)
+			--print("    Атрибути: Q=", boatQ, "R=", boatR, "BoatId=", boatId)
 
 			if boatQ == q and boatR == r then
 				print("✅ Знайдено човен #" .. tostring(boatId) .. " на Q=", q, "R=", r)
