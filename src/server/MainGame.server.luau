@@ -468,7 +468,7 @@ function AtlantisGame:startMainGamePhase()
 						r = exp.r,
 					}
 					table.insert(self.players[player].explorers, explorer)
-					print(
+					--[[print(
 						"  Дослідник",
 						explorer.id,
 						"Q=",
@@ -477,7 +477,8 @@ function AtlantisGame:startMainGamePhase()
 						explorer.r,
 						"власник:",
 						explorer.player.Name
-					)
+					)]]
+					--
 				end
 				print("  Всього дослідників:", #self.players[player].explorers)
 			end
@@ -742,7 +743,7 @@ function AtlantisGame:getExplorersOnTile(q, r)
 end
 
 function AtlantisGame:getBoatIdAtPosition(q, r)
-	print("🔍 Пошук човна на Q=", q, "R=", r)
+	--print("🔍 Пошук човна на Q=", q, "R=", r)
 
 	-- Спершу шукаємо у всіх моделях workspace
 	for _, obj in ipairs(workspace:GetChildren()) do
@@ -765,12 +766,12 @@ function AtlantisGame:getBoatIdAtPosition(q, r)
 		end
 	end
 
-	print("❌ Човен не знайдений на Q=", q, "R=", r)
+	--print("❌ Човен не знайдений на Q=", q, "R=", r)
 	return nil
 end
 
 function AtlantisGame:hasBoatOnTile(q, r)
-	print("🔍 Перевірка чи є човен на Q=", q, "R=", r)
+	--print("🔍 Перевірка чи є човен на Q=", q, "R=", r)
 	local boatId = self:getBoatIdAtPosition(q, r)
 	local hasBoat = boatId ~= nil
 	print("  Результат:", hasBoat)
@@ -793,6 +794,57 @@ function AtlantisGame:getExplorersOnBoat(q, r)
 	return explorers
 end
 
+-- ДОДАНО: Функція для отримання списку зайнятих місць на човні
+function AtlantisGame:getOccupiedBoatPlaces(boatId)
+	local occupiedPlaces = {}
+
+	for _, playerData in pairs(self.players) do
+		if playerData.explorers then
+			for _, explorer in ipairs(playerData.explorers) do
+				if explorer.boatId == boatId and explorer.boatPlaceIndex then
+					occupiedPlaces[explorer.boatPlaceIndex] = {
+						player = explorer.player,
+						explorerId = explorer.id,
+						treasureValue = explorer.treasureValue,
+					}
+				end
+			end
+		end
+	end
+
+	return occupiedPlaces
+end
+
+-- ДОДАНО: Функція для знаходження вільного місця на човні
+function AtlantisGame:findFreeBoatPlace(boatId)
+	if not boatId then
+		return nil
+	end
+
+	local occupiedPlaces = { false, false, false } -- place1, place2, place3
+
+	for _, playerData in pairs(self.players) do
+		if playerData.explorers then
+			for _, explorer in ipairs(playerData.explorers) do
+				if explorer.isOnBoat and explorer.boatId == boatId and explorer.boatPlaceIndex then
+					if explorer.boatPlaceIndex >= 1 and explorer.boatPlaceIndex <= 3 then
+						occupiedPlaces[explorer.boatPlaceIndex] = true
+					end
+				end
+			end
+		end
+	end
+
+	-- Шукаємо перше вільне місце
+	for i = 1, 3 do
+		if not occupiedPlaces[i] then
+			return i
+		end
+	end
+
+	return nil -- Всі місця зайняті
+end
+
 function AtlantisGame:getExplorersOnBoatCount(q, r, boatId)
 	-- Якщо boatId не передано, шукаємо його
 	if not boatId then
@@ -806,16 +858,16 @@ function AtlantisGame:getExplorersOnBoatCount(q, r, boatId)
 	end
 
 	local count = 0
-
 	for _, playerData in pairs(self.players) do
 		if playerData.explorers then
 			for _, explorer in ipairs(playerData.explorers) do
-				-- ДОДАЄМО: Перетворюємо координати на числа
+				-- Перетворюємо координати на числа
 				local expQ = tonumber(explorer.q) or 0
 				local expR = tonumber(explorer.r) or 0
 				local targetQ = tonumber(q) or 0
 				local targetR = tonumber(r) or 0
 
+				-- Рахуємо тільки якщо дослідник ДІЙСНО на човні в цій позиції
 				if expQ == targetQ and expR == targetR and explorer.isOnBoat and explorer.boatId == boatId then
 					count = count + 1
 				end
@@ -1036,6 +1088,13 @@ function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
 
 	print("🚶 [СЕРВЕР] Гравець", player.Name, "переміщує свого дослідника")
 
+	if explorer.isOnBoat and not isBoatTile then
+		explorer.isOnBoat = false
+		explorer.boatId = nil
+		explorer.boatPlaceIndex = nil
+		print("🚤 Дослідник зійшов з човна")
+	end
+
 	-- Обновляем позицию
 	explorer.q = q
 	explorer.r = r
@@ -1044,7 +1103,22 @@ function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
 	if isBoatTile and boatId then
 		explorer.isOnBoat = true
 		explorer.boatId = boatId
-		print("🚤 Дослідник сів на човен #" .. tostring(boatId))
+
+		-- Знаходимо вільне місце на човні
+		local freePlace = self:findFreeBoatPlace(boatId)
+		if freePlace then
+			explorer.boatPlaceIndex = freePlace
+			print(
+				"🚤 Дослідник сів на човен #"
+					.. tostring(boatId)
+					.. " на місце "
+					.. freePlace
+			)
+		else
+			print("❌ На човні немає вільних місць!")
+			-- Скасовуємо переміщення
+			return false
+		end
 	end
 
 	-- Позначаємо, якщо входив у воду (але не на човен)

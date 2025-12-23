@@ -492,7 +492,7 @@ local function showBoatInfo(boat)
 	selectionFrame.Size = UDim2.new(0, 320, 0, hasSelectedExplorer and 180 or 140)
 	selectionFrame.Position = UDim2.new(0.5, -160, 0.05, 0)
 
-	titleLabel.Text = "🚤 ІНФОРМАЦІЯ ПРО ЧОВЕН"
+	--[[titleLabel.Text = "🚤 ІНФОРМАЦІЯ ПРО ЧОВЕН"
 
 	if hasSelectedExplorer then
 		infoLabel.Text = boatInfo .. "\n\n🎯 Оберіть дію:"
@@ -538,7 +538,8 @@ local function showBoatInfo(boat)
 			actionButton.Visible = false
 		end
 	end
-
+]]
+	--
 	closeButton.Visible = true
 	closeButton.Position = UDim2.new(0.5, -40, 1, -30)
 end
@@ -871,10 +872,7 @@ local function onExplorerClick(explorer)
 		infoLabel.TextColor3 = Color3.fromRGB(255, 165, 0)
 
 		task.delay(2, function()
-			if infoLabel then
-				infoLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
-				infoLabel.Text = "Оберіть дослідника для переміщення"
-			end
+			clearSelectionState()
 		end)
 		return
 	end
@@ -1121,10 +1119,11 @@ HighlightTilesEvent.OnClientEvent:Connect(function(data)
 		highlightAvailableTiles(data)
 
 		-- Додаємо підказку про човни
-		if infoLabel then
+		--[[if infoLabel then
 			infoLabel.Text = infoLabel.Text
 				.. "\n\n🚤 Також можна клікнути на човен безпосередньо!"
-		end
+		end]]
+		--
 	elseif data and data.type == "clear" then
 		clearTileHighlights()
 	elseif data and data.type == "explorer_water_blocked" then
@@ -1197,7 +1196,7 @@ RunService.Heartbeat:Connect(function()
 		-- Навели на новий човен
 		highlightBoatOnHover(currentHoveredBoat, false)
 		highlightBoatOnHover(hoveredBoat, true)
-		showBoatInfo(hoveredBoat)
+		--showBoatInfo(hoveredBoat)
 	elseif not hoveredBoat and currentHoveredBoat then
 		-- Зійшли з човна
 		highlightBoatOnHover(currentHoveredBoat, false)
@@ -1456,7 +1455,17 @@ local function updateExplorerPosition(explorer, q, r)
 				waterEffect:Destroy()
 			end
 		end
+		if not isWaterTile and explorer:GetAttribute("OnBoat") then
+			explorer:SetAttribute("OnBoat", false)
+			explorer:SetAttribute("BoatId", nil)
+			explorer:SetAttribute("BoatPlaceIndex", nil)
 
+			-- Видаляємо ефект човна
+			local boatEffect = explorer:FindFirstChild("BoatEffect")
+			if boatEffect then
+				boatEffect:Destroy()
+			end
+		end
 		-- Оновлюємо атрибути
 		explorer:SetAttribute("Q", q)
 		explorer:SetAttribute("R", r)
@@ -1496,38 +1505,58 @@ local function updateExplorerPositionOnBoat(explorer, q, r, boatId)
 	if boat then
 		print("🚤 Дослідник сів на човен #" .. tostring(boatId))
 
-		-- Рахуємо скільки дослідників вже на цьому човні
-		local explorersOnBoat = 0
+		-- Знаходимо всі місця в човні
+		local places = {}
+		for _, part in ipairs(boat:GetDescendants()) do
+			if part.Name == "place1" or part.Name == "place2" or part.Name == "place3" then
+				table.insert(places, part)
+			end
+		end
+
+		-- Сортуємо місця за іменем
+		table.sort(places, function(a, b)
+			return a.Name < b.Name
+		end)
+
+		-- Визначаємо, які місця вже зайняті
+		local occupiedPlaces = {}
 		for _, obj in ipairs(workspace:GetChildren()) do
-			if obj:GetAttribute("IsExplorer") then
-				local expQ = obj:GetAttribute("Q")
-				local expR = obj:GetAttribute("R")
-				if expQ == q and expR == r then
-					explorersOnBoat = explorersOnBoat + 1
+			if obj:GetAttribute("IsExplorer") and obj:GetAttribute("BoatId") == boatId and obj ~= explorer then
+				local placeIndex = obj:GetAttribute("BoatPlaceIndex")
+				if placeIndex then
+					occupiedPlaces[placeIndex] = true
 				end
 			end
 		end
 
-		local explorerIndex = explorersOnBoat
-		local maxExplorersPerBoat = 3
+		-- Шукаємо перше вільне місце
+		local selectedPlace = nil
+		local selectedIndex = nil
+		for i, place in ipairs(places) do
+			if not occupiedPlaces[i] then
+				selectedPlace = place
+				selectedIndex = i
+				break
+			end
+		end
 
-		if explorerIndex <= maxExplorersPerBoat then
-			-- Позиціонуємо на човні зі зміщенням
-			local boatPosition = boat.PrimaryPart.Position
-			local baseHeight = 2 -- Базова висота над човном
+		if selectedPlace then
+			local placeHeight = selectedPlace.Size.Y
+			local explorerHeight = explorer.PrimaryPart.Size.Y
+			local yOffset = (placeHeight / 2) + (explorerHeight / 2)
+			local rotation = CFrame.Angles(0, math.rad(90), 0)
 
-			-- Розраховуємо зміщення по колу
-			local angle = (explorerIndex - 1) * (360 / maxExplorersPerBoat)
-			local radius = 1.2 -- Радіус на човні
+			local newCFrame = selectedPlace.CFrame * rotation * CFrame.new(0, yOffset, 0)
+			-- Позиціонуємо дослідника на вершині місця
+			explorer:SetPrimaryPartCFrame(newCFrame)
 
-			local offsetX = math.cos(math.rad(angle)) * radius
-			local offsetZ = math.sin(math.rad(angle)) * radius
-
-			local explorerPosition =
-				Vector3.new(boatPosition.X + offsetX, boatPosition.Y + baseHeight, boatPosition.Z + offsetZ)
-
-			local rotatedCFrame = CFrame.new(explorerPosition) * CFrame.Angles(0, math.rad(90 + angle), 0)
-			explorer:SetPrimaryPartCFrame(rotatedCFrame)
+			-- Оновлюємо атрибути
+			explorer:SetAttribute("Q", q)
+			explorer:SetAttribute("R", r)
+			explorer:SetAttribute("IsOnWater", true)
+			explorer:SetAttribute("OnBoat", true)
+			explorer:SetAttribute("BoatId", boatId)
+			explorer:SetAttribute("BoatPlaceIndex", selectedIndex)
 
 			-- Додаємо спеціальний ефект для дослідників на човні
 			local boatEffect = explorer:FindFirstChild("BoatEffect")
@@ -1543,25 +1572,21 @@ local function updateExplorerPositionOnBoat(explorer, q, r, boatId)
 				boatEffect.Parent = explorer.PrimaryPart
 			end
 
-			-- Оновлюємо атрибути
-			explorer:SetAttribute("Q", q)
-			explorer:SetAttribute("R", r)
-			explorer:SetAttribute("IsOnWater", true)
-			explorer:SetAttribute("OnBoat", true)
-			explorer:SetAttribute("BoatId", boatId)
-
 			print(
 				"📍 Дослідник розміщений на човні #"
 					.. boatId
-					.. ", позиція: "
-					.. explorerIndex
-					.. "/"
-					.. maxExplorersPerBoat
+					.. ", місце: "
+					.. selectedPlace.Name
 			)
 		else
-			print("❌ Забагато дослідників на човні!")
+			print("❌ Немає вільних місць на човні #" .. boatId)
 		end
 	else
+		if explorer:GetAttribute("OnBoat") then
+			explorer:SetAttribute("OnBoat", false)
+			explorer:SetAttribute("BoatId", nil)
+			explorer:SetAttribute("BoatPlaceIndex", nil)
+		end
 		print("❌ Човен не знайдений для позиціонування дослідника")
 	end
 end

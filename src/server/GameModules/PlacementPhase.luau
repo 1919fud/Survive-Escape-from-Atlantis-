@@ -834,7 +834,7 @@ function PlacementPhase:endBoatsPhase()
 		print("  Игрок", player.Name, "исследователей:", #playerData.explorers)
 		for i, explorer in ipairs(playerData.explorers) do
 			explorer.id = explorer.id or i
-			print(
+			--[[print(
 				"    Исследователь",
 				explorer.id,
 				"Q=",
@@ -843,7 +843,8 @@ function PlacementPhase:endBoatsPhase()
 				explorer.r,
 				"сокровища:",
 				explorer.treasureValue
-			)
+			)]]
+			--
 		end
 	end
 
