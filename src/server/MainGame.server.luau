@@ -545,9 +545,13 @@ function AtlantisGame:setupMovementSystem()
 	-- Отримуємо події для руху
 	local moveExplorerEvent = self.networkManager:getMoveExplorerEvent()
 	local selectExplorerEvent = self.networkManager:getSelectExplorerEvent()
+	local selectBoatEvent = self.networkManager:getSelectBoatEvent()
+	local moveBoatEvent = self.networkManager:getMoveBoatEvent()
 
 	print("🔗 [СЕРВЕР] SelectExplorerEvent підключено:", selectExplorerEvent ~= nil)
 	print("🔗 [СЕРВЕР] MoveExplorerEvent підключено:", moveExplorerEvent ~= nil)
+	print("🔗 [СЕРВЕР] SelectBoatEvent підключено:", selectBoatEvent ~= nil)
+	print("🔗 [СЕРВЕР] MoveBoatEvent підключено:", moveBoatEvent ~= nil)
 
 	-- Обробка вибору дослідника
 	if selectExplorerEvent then
@@ -581,6 +585,33 @@ function AtlantisGame:setupMovementSystem()
 		end)
 	else
 		warn("❌ [СЕРВЕР] moveExplorerEvent не знайдено!")
+	end
+	if selectBoatEvent then
+		selectBoatEvent.OnServerEvent:Connect(function(player, boatId)
+			print("🚤 [СЕРВЕР] Отримано SelectBoatEvent від", player.Name, "з boatId:", boatId)
+			self:onPlayerSelectBoat(player, boatId)
+		end)
+	else
+		warn("❌ [СЕРВЕР] selectBoatEvent не знайдено!")
+	end
+
+	-- Обробка руху човна (ДОДАНО)
+	if moveBoatEvent then
+		moveBoatEvent.OnServerEvent:Connect(function(player, boatId, q, r)
+			print(
+				"🚤 [СЕРВЕР] Отримано MoveBoatEvent від",
+				player.Name,
+				"з boatId:",
+				boatId,
+				"Q=",
+				q,
+				"R=",
+				r
+			)
+			self:onPlayerMoveBoat(player, boatId, q, r)
+		end)
+	else
+		warn("❌ [СЕРВЕР] moveBoatEvent не знайдено!")
 	end
 
 	print("✅ [СЕРВЕР] Система переміщення налаштована")
@@ -744,23 +775,21 @@ end
 
 function AtlantisGame:getBoatIdAtPosition(q, r)
 	--print("🔍 Пошук човна на Q=", q, "R=", r)
+	local targetQ = tonumber(q) or 0
+	local targetR = tonumber(r) or 0
 
 	-- Спершу шукаємо у всіх моделях workspace
 	for _, obj in ipairs(workspace:GetChildren()) do
 		if obj:IsA("Model") and obj:GetAttribute("IsBoat") then
-			local boatQ = obj:GetAttribute("Q")
-			local boatR = obj:GetAttribute("R")
-			local boatId = obj:GetAttribute("BoatId")
-
-			-- Переконуємося, що атрибути мають правильний тип
-			boatQ = tonumber(boatQ) or 0
-			boatR = tonumber(boatR) or 0
+			local boatQ = tonumber(obj:GetAttribute("Q")) or 0
+			local boatR = tonumber(obj:GetAttribute("R")) or 0
+			local boatId = tonumber(obj:GetAttribute("BoatId")) or 0
 
 			--print("  Перевіряємо об'єкт:", obj.Name)
 			--print("    Атрибути: Q=", boatQ, "R=", boatR, "BoatId=", boatId)
 
-			if boatQ == q and boatR == r then
-				print("✅ Знайдено човен #" .. tostring(boatId) .. " на Q=", q, "R=", r)
+			if boatQ == targetQ and boatR == targetR then
+				--print("✅ Знайдено човен #" .. tostring(boatId) .. " на Q=", q, "R=", r)
 				return boatId
 			end
 		end
@@ -1137,7 +1166,7 @@ function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
 		moveCost = moveCost,
 		isWaterTile = isWaterTile,
 		isBoatTile = isBoatTile,
-		boatId = boatId,
+		boatId = isBoatTile and boatId or nil,
 		remainingActions = self.turnManager:getRemainingActions(player),
 	})
 
@@ -1156,6 +1185,406 @@ function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
 	return true
 end
 
+function AtlantisGame:getBoatController(boatId)
+	if not boatId then
+		return nil
+	end
+
+	local playerCounts = {}
+	local maxCount = 0
+
+	-- Рахуємо кількість дослідників кожного гравця на човні
+	for _, playerData in pairs(self.players) do
+		if playerData.explorers then
+			for _, explorer in ipairs(playerData.explorers) do
+				if explorer.isOnBoat and explorer.boatId == boatId then
+					local playerName = explorer.player.Name
+					playerCounts[playerName] = (playerCounts[playerName] or 0) + 1
+					if playerCounts[playerName] > maxCount then
+						maxCount = playerCounts[playerName]
+					end
+				end
+			end
+		end
+	end
+
+	-- Якщо човен пустий (немає дослідників) - повертаємо nil, що означає "всі можуть контролювати"
+	if maxCount == 0 then
+		print("🚤 Човен #" .. boatId .. " пустий - можуть контролювати всі")
+		return nil -- nil означає "всі гравці можуть контролювати"
+	end
+
+	-- Знаходимо гравців з максимальною кількістю дослідників
+	local controllers = {}
+	for playerName, count in pairs(playerCounts) do
+		if count == maxCount then
+			-- Знаходимо об'єкт гравця за іменем
+			for playerObj, _ in pairs(self.players) do
+				if playerObj.Name == playerName then
+					table.insert(controllers, playerObj)
+					break
+				end
+			end
+		end
+	end
+
+	-- Якщо лише один гравець має максимальну кількість - він контролює
+	if #controllers == 1 then
+		print(
+			"🚤 Човен #"
+				.. boatId
+				.. " контролює: "
+				.. controllers[1].Name
+				.. " ("
+				.. maxCount
+				.. " дослідників)"
+		)
+		return controllers[1]
+	end
+
+	-- Якщо декілька гравців мають однакову кількість - нічия
+	if #controllers > 1 then
+		local controllerNames = ""
+		for i, player in ipairs(controllers) do
+			controllerNames = controllerNames .. player.Name
+			if i < #controllers then
+				controllerNames = controllerNames .. ", "
+			end
+		end
+		print(
+			"🚤 Човен #"
+				.. boatId
+				.. " - нічия між: "
+				.. controllerNames
+				.. " (по "
+				.. maxCount
+				.. " дослідників)"
+		)
+		-- При нічиїй повертаємо nil, що означає "обидва можуть контролювати"
+		return nil
+	end
+
+	return nil
+end
+
+function AtlantisGame:canPlayerControlBoat(player, boatId)
+	if not boatId then
+		return false
+	end
+
+	-- Отримуємо контролера човна
+	local controller = self:getBoatController(boatId)
+
+	-- Якщо контролера немає (човен пустий або нічия) - всі можуть
+	if not controller then
+		print(
+			"✅ Гравець "
+				.. player.Name
+				.. " може контролювати пустий/спільний човен #"
+				.. boatId
+		)
+		return true
+	end
+
+	-- Якщо є контролер - перевіряємо, чи це цей гравець
+	if controller == player then
+		print("✅ Гравець " .. player.Name .. " контролює човен #" .. boatId)
+		return true
+	end
+
+	print(
+		"❌ Гравець "
+			.. player.Name
+			.. " НЕ контролює човен #"
+			.. boatId
+			.. " (контролює: "
+			.. controller.Name
+			.. ")"
+	)
+	return false
+end
+
+function AtlantisGame:getAvailableBoatMovementTiles(boatId)
+	print("🚤 [СЕРВЕР] Пошук доступних тайлів для човна #", boatId)
+
+	-- Знаходимо координати човна
+	local boatQ, boatR
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:IsA("Model") and obj:GetAttribute("IsBoat") then
+			if obj:GetAttribute("BoatId") == boatId then
+				boatQ = obj:GetAttribute("Q")
+				boatR = obj:GetAttribute("R")
+				break
+			end
+		end
+	end
+
+	if not boatQ or not boatR then
+		print("❌ Човен не знайдений!")
+		return {}
+	end
+
+	print(" Початкова позиція човна: Q=", boatQ, "R=", boatR)
+
+	local availableTiles = {}
+	local directions = {
+		{ 1, 0 },
+		{ 1, -1 },
+		{ 0, -1 },
+		{ -1, 0 },
+		{ -1, 1 },
+		{ 0, 1 },
+	}
+
+	for _, dir in ipairs(directions) do
+		local nq = boatQ + dir[1]
+		local nr = boatR + dir[2]
+
+		-- Перевіряємо, чи це водний тайл
+		local tile = self.mapManager:getTileAtPosition(nq, nr)
+		if tile and tile.isWater then
+			-- Перевіряємо, чи немає там іншого човна
+			local hasOtherBoat = false
+			for _, obj in ipairs(workspace:GetChildren()) do
+				if obj:IsA("Model") and obj:GetAttribute("IsBoat") then
+					local otherBoatId = obj:GetAttribute("BoatId")
+					if otherBoatId ~= boatId then
+						local otherQ = obj:GetAttribute("Q")
+						local otherR = obj:GetAttribute("R")
+						if otherQ == nq and otherR == nr then
+							hasOtherBoat = true
+							break
+						end
+					end
+				end
+			end
+
+			if not hasOtherBoat then
+				table.insert(availableTiles, {
+					q = nq,
+					r = nr,
+					cost = 1, -- 1 дія для переміщення човна
+					isWater = true,
+				})
+				print(" ✅ Доступний тайл: Q=", nq, "R=", nr)
+			else
+				print(" ❌ Тайл зайнятий іншим човном: Q=", nq, "R=", nr)
+			end
+		end
+	end
+
+	print("📍 Доступних тайлів для човна:", #availableTiles)
+	return availableTiles
+end
+
+function AtlantisGame:onPlayerSelectBoat(player, boatId)
+	print("🎯 [СЕРВЕР] onPlayerSelectBoat викликано")
+	print(" Гравець:", player.Name, "boatId:", boatId)
+
+	if not self.isGameActive or self.gameState ~= "main_game" then
+		print("❌ [СЕРВЕР] Гра не активна або не основна фаза!")
+		return false
+	end
+
+	-- Перевіряємо чи хід гравця
+	local currentPlayer = self.turnManager:getCurrentPlayer()
+	if player ~= currentPlayer then
+		print("❌ [СЕРВЕР] Не ваш хід! Зараз ходить:", currentPlayer.Name)
+		return false
+	end
+
+	-- ВИПРАВЛЕНО: Використовуємо нову функцію перевірки
+	if not self:canPlayerControlBoat(player, boatId) then
+		print("❌ [СЕРВЕР] Гравець не може контролювати цей човен!")
+		return false
+	end
+
+	-- Знаходимо доступні тайли для переміщення
+	local availableTiles = self:getAvailableBoatMovementTiles(boatId)
+
+	-- Відправляємо клієнту список доступних тайлів
+	self.networkManager:getHighlightTilesEvent():FireClient(player, {
+		type = "boat_movement",
+		boatId = boatId,
+		availableTiles = availableTiles,
+		remainingActions = self.turnManager:getRemainingActions(player),
+	})
+
+	return true
+end
+
+function AtlantisGame:onPlayerMoveBoat(player, boatId, q, r)
+	print("🚤 [СЕРВЕР] onPlayerMoveBoat викликано")
+	print(" Гравець:", player.Name, "boatId:", boatId, "Q=", q, "R=", r)
+
+	if not self.isGameActive or self.gameState ~= "main_game" then
+		print("❌ [СЕРВЕР] Гра не активна або не основна фаза!")
+		return false
+	end
+
+	-- Перевіряємо чи хід гравця
+	if player ~= self.turnManager:getCurrentPlayer() then
+		print("❌ [СЕРВЕР] Не ваш хід!")
+		return false
+	end
+
+	-- Перевіряємо, чи гравець контролює човен
+	if not self:canPlayerControlBoat(player, boatId) then
+		print("❌ [СЕРВЕР] Ви не можете контролювати цей човен!")
+		return false
+	end
+
+	-- Перевіряємо доступність тайла
+	local availableTiles = self:getAvailableBoatMovementTiles(boatId)
+	local isTileAvailable = false
+	for _, tile in ipairs(availableTiles) do
+		if tile.q == q and tile.r == r then
+			isTileAvailable = true
+			break
+		end
+	end
+
+	if not isTileAvailable then
+		print("❌ [СЕРВЕР] Цей тайл недоступний для човна!")
+		return false
+	end
+
+	-- Використовуємо дію
+	if not self.turnManager:useAction(player) then
+		print("❌ [СЕРВЕР] Недостатньо дій!")
+		return false
+	end
+
+	-- Знаходимо човен у workspace
+	local boatModel = nil
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:IsA("Model") and obj:GetAttribute("IsBoat") then
+			if obj:GetAttribute("BoatId") == boatId then
+				boatModel = obj
+				break
+			end
+		end
+	end
+
+	if not boatModel then
+		print("❌ [СЕРВЕР] Човен не знайдений у workspace!")
+		return false
+	end
+
+	-- ОНОВЛЮЄМО НАЗВУ ЧОВНА
+	local oldName = boatModel.Name
+	local newName = "Boat_" .. tostring(boatId) .. "_" .. player.Name .. "_" .. q .. "_" .. r
+	boatModel.Name = newName
+	print("🔄 [СЕРВЕР] Оновлено назву човна: ", oldName, "→", newName)
+
+	-- Оновлюємо координати човна
+	boatModel:SetAttribute("Q", q)
+	boatModel:SetAttribute("R", r)
+
+	-- Оновлюємо координати всіх дослідників на човні
+	for _, playerData in pairs(self.players) do
+		if playerData.explorers then
+			for _, explorer in ipairs(playerData.explorers) do
+				if explorer.isOnBoat and explorer.boatId == boatId then
+					explorer.q = q
+					explorer.r = r
+					print(
+						"🔄 Оновлено координати дослідника",
+						explorer.id,
+						"на Q=",
+						q,
+						"R=",
+						r
+					)
+				end
+			end
+		end
+	end
+
+	-- Оновлюємо позицію човна візуально
+	local map = workspace:WaitForChild("Map")
+	local targetTile = nil
+	for _, obj in ipairs(map:GetDescendants()) do
+		if obj:IsA("MeshPart") then
+			local tileQ = tonumber(obj:GetAttribute("Q")) or tonumber(obj:GetAttribute("q")) or 0
+			local tileR = tonumber(obj:GetAttribute("R")) or tonumber(obj:GetAttribute("r")) or 0
+			local isWater = obj:GetAttribute("IsWater") or obj:GetAttribute("Placeboat") == true
+
+			if tileQ == q and tileR == r and isWater then
+				targetTile = obj
+				break
+			end
+		end
+	end
+	if targetTile and boatModel.PrimaryPart then
+		local tileTopY = targetTile.Position.Y + targetTile.Size.Y / 2
+		local boatBottomY = boatModel.PrimaryPart.Position.Y - boatModel.PrimaryPart.Size.Y / 2
+		local yOffset = tileTopY - boatBottomY + 0.3
+
+		local targetPosition = targetTile.Position + Vector3.new(0, yOffset, 0)
+		local targetCFrame = CFrame.new(targetPosition) * CFrame.Angles(math.rad(180), 0, 0)
+
+		boatModel:PivotTo(targetCFrame)
+		print("🚤 Човен переміщений на нову позицію")
+	else
+		print("⚠️ Не знайдено водний тайл для позиціонування човна")
+	end
+
+	-- Уведомляємо всіх клієнтів
+	self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
+		type = "BoatMoved",
+		boatId = boatId,
+		q = q,
+		r = r,
+		playerName = player.Name,
+		remainingActions = self.turnManager:getRemainingActions(player),
+	})
+
+	local remainingActions = self.turnManager:getRemainingActions(player)
+
+	if remainingActions <= 0 then
+		print("🎯 [СЕРВЕР] Усі дії використані після переміщення човна")
+
+		-- Скидаємо прапори входу у воду для всіх дослідників гравця
+		local playerData = self.players[player]
+		if playerData and playerData.explorers then
+			for _, explorer in ipairs(playerData.explorers) do
+				explorer.hasEnteredWaterThisTurn = false
+				explorer.hasEnteredWaterThisTurn = nil
+			end
+		end
+
+		-- Скидаємо виділення човна у клієнта
+		self.networkManager:getHighlightTilesEvent():FireClient(player, {
+			type = "clear",
+		})
+
+		-- Приховуємо UI вибору
+		self.networkManager:getUpdateReadyStatusEvent():FireClient(player, {
+			type = "turn_ended",
+			message = "Хід завершено! Усі дії використані.",
+		})
+
+		-- Автоматично завершуємо хід
+		self:endPlayerTurn(player)
+	else
+		-- Якщо ще є дії, оновлюємо інтерфейс
+		self.networkManager:getUpdateReadyStatusEvent():FireClient(player, {
+			type = "MainGameTurn",
+			currentPlayer = player.Name,
+			remainingActions = remainingActions,
+			maxActions = self.turnManager.maxActions,
+		})
+	end
+
+	print(
+		"✅ [СЕРВЕР] Човен #" .. tostring(boatId) .. " переміщений гравцем",
+		player.Name
+	)
+
+	return true
+end
+
 function AtlantisGame:endPlayerTurn(player)
 	print("🎮 [СЕРВЕР] Завершення ходу гравця:", player.Name)
 
@@ -1164,21 +1593,22 @@ function AtlantisGame:endPlayerTurn(player)
 	if playerData and playerData.explorers then
 		for _, explorer in ipairs(playerData.explorers) do
 			explorer.hasEnteredWaterThisTurn = false
-			explorer.hasEnteredWaterThisTurn = nil -- Удаляем атрибут полностью
+			explorer.hasEnteredWaterThisTurn = nil
 		end
 		print(
 			"💧 Скинуто прапори входу у воду для всіх дослідників гравця"
 		)
 	end
 
-	-- Скидаємо использованные действия
-	if self.turnManager and self.turnManager.playerActionsUsed then
-		self.turnManager.playerActionsUsed[player] = 0
-	end
-
-	-- Скидаємо выделение исследователя у клиента
+	-- Скидаємо виділення у клієнта
 	self.networkManager:getHighlightTilesEvent():FireClient(player, {
 		type = "clear",
+	})
+
+	-- Відправляємо подію про завершення ходу
+	self.networkManager:getUpdateReadyStatusEvent():FireClient(player, {
+		type = "turn_ended",
+		message = "Ваш хід завершено! Чекайте наступного ходу.",
 	})
 
 	-- Переходимо до наступного гравця
