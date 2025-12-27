@@ -531,6 +531,36 @@ local function clearBoatSelection()
 		end
 	end
 end
+
+local function getExplorersOnBoatCount(boatId)
+	if not boatId then
+		return 0
+	end
+
+	local count = 0
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:GetAttribute("IsExplorer") then
+			local objBoatId = obj:GetAttribute("BoatId")
+			-- Перевіряємо як стрінгу і як число
+			if objBoatId and tostring(objBoatId) == tostring(boatId) then
+				count = count + 1
+			end
+		end
+	end
+
+	print("🔍 На човні #" .. boatId .. " знайдено " .. count .. " дослідників")
+	return count
+end
+
+local function hasSpaceOnBoat(boatId)
+	if not boatId then
+		return false
+	end
+
+	local count = getExplorersOnBoatCount(boatId)
+	return count < 3
+end
+
 local function onBoatClick(boat)
 	if not isGamePhaseActive or not isMyTurn then
 		print("❌ Не ваш хід або фаза не активна!")
@@ -540,6 +570,84 @@ local function onBoatClick(boat)
 	local boatId = boat:GetAttribute("BoatId")
 	local controllerName = getBoatControllerClient(boat)
 
+	-- Якщо є обраний дослідник - спробувати посадити його на човен
+	if selectedExplorer then
+		print("🚤 Спроба посадити обраного дослідника на човен")
+
+		-- Перевіряємо, чи це наш дослідник
+		local explorerPlayer = selectedExplorer:GetAttribute("Player")
+		if explorerPlayer ~= player.Name then
+			print("❌ Це не ваш дослідник!")
+			infoLabel.Text =
+				"❌ Це дослідник іншого гравця!\nОберіть свого дослідника"
+			infoLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+
+			task.delay(2, function()
+				if infoLabel then
+					infoLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+					infoLabel.Text = "Оберіть дослідника для переміщення"
+				end
+			end)
+			return
+		end
+
+		-- Перевіряємо, чи можна контролювати човен
+		if controllerName and controllerName ~= player.Name then
+			print("❌ Ви не контролюєте цей човен!")
+			infoLabel.Text = "❌ Ви не контролюєте цей човен!\n🚤 Контролює: "
+				.. controllerName
+			infoLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+
+			task.delay(2, function()
+				if infoLabel then
+					infoLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+					infoLabel.Text = "Оберіть човен або дослідника"
+				end
+			end)
+			return
+		end
+
+		-- Перевіряємо, чи не заповнений човен
+		local explorersOnBoatCount = getExplorersOnBoatCount(boatId)
+		if explorersOnBoatCount >= 3 then
+			print("❌ Човен заповнений!")
+			infoLabel.Text = "❌ Човен заповнений!\n🚤 Максимум 3 дослідника"
+			infoLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+
+			task.delay(2, function()
+				if infoLabel then
+					infoLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+					infoLabel.Text = "Оберіть інший човен або тайл"
+				end
+			end)
+			return
+		end
+
+		-- Отримуємо координати човна
+		local boatQ = boat:GetAttribute("Q")
+		local boatR = boat:GetAttribute("R")
+		local explorerId = selectedExplorer:GetAttribute("ExplorerId")
+
+		print(
+			"🚤 Посадка дослідника #",
+			explorerId,
+			"на човен #",
+			boatId,
+			"Q=",
+			boatQ,
+			"R=",
+			boatR
+		)
+
+		-- Відправляємо запит на сервер
+		MoveExplorerEvent:FireServer(explorerId, boatQ, boatR)
+
+		-- Очищаємо вибір
+		clearSelectionState()
+		return
+	end
+
+	-- Якщо немає обраного дослідника - обираємо човен для переміщення
 	if controllerName then
 		-- Якщо є контролер, перевіряємо чи це наш гравець
 		if controllerName ~= player.Name then
@@ -581,21 +689,21 @@ local function onBoatClick(boat)
 		for _, obj in ipairs(workspace:GetChildren()) do
 			if obj:GetAttribute("IsExplorer") and obj:GetAttribute("BoatId") == boatId then
 				explorersOnBoat = explorersOnBoat + 1
-				explorersList = explorersList .. "• " .. obj:GetAttribute("Player") .. "\\n"
+				explorersList = explorersList .. "• " .. obj:GetAttribute("Player") .. "\n"
 			end
 		end
 
 		infoLabel.Text = string.format(
-			"🚤 Човен #%d\\n"
-				.. "👤 Контролює: %s\\n"
-				.. "👥 Дослідників на човні: %d/3\\n"
-				.. "%s\\n"
-				.. "📍 Координати: Q=%d R=%d\\n\\n"
+			"🚤 Човен #%d\n"
+				.. "👤 Контролює: %s\n"
+				.. "👥 Дослідників на човні: %d/3\n"
+				.. "%s\n"
+				.. "📍 Координати: Q=%d R=%d\n\n"
 				.. "🖱️ Натисніть на доступний водний тайл для переміщення",
 			boatId,
 			player.Name,
 			explorersOnBoat,
-			explorersOnBoat > 0 and "📋 Список:\\n" .. explorersList or "🪹 Човен порожній",
+			explorersOnBoat > 0 and "📋 Список:\n" .. explorersList or "🪹 Човен порожній",
 			boat:GetAttribute("Q") or 0,
 			boat:GetAttribute("R") or 0
 		)
@@ -1047,20 +1155,6 @@ local function getHighlightedTileUnderCursor()
 		end
 	end
 	return nil
-end
-
-local function getExplorersOnBoatCount(boatId)
-	if not boatId then
-		return 0
-	end
-
-	local count = 0
-	for _, obj in ipairs(workspace:GetChildren()) do
-		if obj:GetAttribute("IsExplorer") and obj:GetAttribute("BoatId") == boatId then
-			count = count + 1
-		end
-	end
-	return count
 end
 
 -- Обробник кліку по досліднику
@@ -1768,7 +1862,11 @@ RunService.Heartbeat:Connect(function()
 			highlightBoatOnHover(hoveredBoat, true)
 
 			-- Оновлюємо UI
-			updateHoverUI(hoveredBoat, nil)
+			if selectedExplorer then
+				--updateBoatHoverUIWithSelectedExplorer(hoveredBoat)
+			else
+				updateHoverUI(hoveredBoat, nil)
+			end
 		end
 	elseif currentHoveredBoat then
 		-- Зійшли з човна
@@ -1801,11 +1899,16 @@ RunService.Heartbeat:Connect(function()
 
 	-- 5. Якщо ні на що не наведено - відновлюємо стандартний UI
 	if not hoveredBoat and not hoveredExplorer and selectionFrame.Visible then
-		if not selectedExplorer and not selectedBoat then
+		if selectedExplorer then
+			-- Якщо є обраний дослідник, показуємо інформацію про нього
+			updateSelectionUI(selectedExplorer)
+		elseif selectedBoat then
+			-- Якщо є обраний човен, показуємо інформацію про нього
+			titleLabel.Text = "🚤 ОБРАНО ЧОВЕН"
+			infoLabel.Text = "Оберіть водний тайл для переміщення човна"
+		else
 			titleLabel.Text = "🕵️ ОБРАНО ДОСЛІДНИКА"
-			infoLabel.Text = "Оберіть дослідника для переміщення або човен"
-			selectionFrame.Size = UDim2.new(0, 400, 0, 120)
-			infoLabel.Size = UDim2.new(1, -29, 0, 50)
+			infoLabel.Text = "Оберіть дослідника для переміщення"
 		end
 	end
 end)
@@ -1826,6 +1929,8 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 				onBoatClick(boat)
 				return
 			end
+
+			-- 2. Перевіряємо, чи це підсвічений тайл для човна
 			if selectedBoat then
 				local highlightedTile = target:FindFirstChild("BoatMovementHighlight")
 				if highlightedTile then
@@ -1842,40 +1947,33 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 					end
 				end
 			end
-			-- Якщо це човен І обрано дослідника
-			if boat and selectedExplorer then
-				print("🚤 Клік на човен з обраним дослідником")
 
-				-- Отримуємо координати човна
-				local boatQ = boat:GetAttribute("Q")
-				local boatR = boat:GetAttribute("R")
-				local boatId = boat:GetAttribute("BoatId")
-
-				-- Отримуємо ID обраного дослідника
-				local explorerId = selectedExplorer:GetAttribute("ExplorerId")
-
-				-- Відправляємо на сервер запит на переміщення дослідника на човен
-				MoveExplorerEvent:FireServer(explorerId, boatQ, boatR)
-
-				-- Очищаємо вибір
-				clearSelectionState()
+			-- 3. Перевіряємо, чи це підсвічений тайл для дослідника
+			local highlightedTile = getHighlightedTileUnderCursor()
+			if highlightedTile and selectedExplorer and isMovementMode then
+				moveExplorerToTile(highlightedTile)
 				return
 			end
 
-			-- 2. Потім перевіряємо чи це дослідник
+			-- 4. Потім перевіряємо чи це дослідник
 			local explorer = getExplorerUnderCursor()
 			if explorer then
 				onExplorerClick(explorer)
-			else
-				-- 3. Перевіряємо, чи це підсвічений тайл
-				local highlightedTile = getHighlightedTileUnderCursor()
-				if highlightedTile and selectedExplorer and isMovementMode then
-					moveExplorerToTile(highlightedTile)
-				elseif selectedExplorer then
-					print(
-						"⚠️ Є обраний дослідник. Скасуйте через UI або клікніть на того ж дослідника"
-					)
-				end
+				return
+			end
+
+			-- 5. Якщо нічого не знайдено, але є обраний дослідник
+			if selectedExplorer then
+				print("⚠️ Клік поза доступними тайлами")
+				infoLabel.Text = "⚠️ Клікніть на доступний тайл або човен"
+				infoLabel.TextColor3 = Color3.fromRGB(255, 165, 0)
+
+				task.delay(2, function()
+					if infoLabel then
+						infoLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+						infoLabel.Text = "Оберіть дослідника для переміщення"
+					end
+				end)
 			end
 		end
 	end
