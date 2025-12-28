@@ -249,7 +249,9 @@ local function getBoatControllerClient(boat)
 	-- Рахуємо дослідників кожного гравця на човні
 	for _, obj in ipairs(workspace:GetChildren()) do
 		if obj:GetAttribute("IsExplorer") then
-			if obj:GetAttribute("BoatId") == boatId then
+			local objBoatId = obj:GetAttribute("BoatId")
+			-- ВИПРАВЛЕНО: перетворюємо на строку для порівняння
+			if tostring(objBoatId) == tostring(boatId) then
 				local playerName = obj:GetAttribute("Player")
 				playerCounts[playerName] = (playerCounts[playerName] or 0) + 1
 				if playerCounts[playerName] > maxCount then
@@ -319,23 +321,51 @@ local function highlightBoatOnHover(boatModel, highlight)
 	local highlightObj = Instance.new("Highlight")
 	highlightObj.Name = "BoatHoverHighlight"
 
+	local controllerName = getBoatControllerClient(boatModel)
+	local canControl = false
+
 	-- Вибираємо колір залежно від гравця та стану
-	local boatPlayerName = boatModel:GetAttribute("Player") or "Unknown"
-	local isMyBoat = (boatPlayerName == player.Name)
+	if controllerName == nil then
+		-- Човен пустий або нічия - всі можуть контролювати
+		canControl = true
+		print("✅ Човен #" .. boatId .. " пустий/спільний - можна контролювати")
+	elseif controllerName == player.Name then
+		-- Ми контролюємо човен
+		canControl = true
+		print("✅ Човен #" .. boatId .. " під вашим контролем")
+	else
+		-- Хтось інший контролює човен
+		canControl = false
+		print("❌ Човен #" .. boatId .. " контролює " .. controllerName)
+	end
 
 	-- Якщо є обраний дослідник - показуємо спеціальний колір
 	if selectedExplorer then
-		-- Жовтий для можливості посадити дослідника на човен
-		highlightObj.FillColor = Color3.fromRGB(255, 255, 0)
-		highlightObj.OutlineColor = Color3.fromRGB(255, 200, 0)
-	elseif isMyBoat then
-		-- Синій для наших човнів
-		highlightObj.FillColor = Color3.fromRGB(0, 150, 255)
-		highlightObj.OutlineColor = Color3.fromRGB(0, 100, 200)
+		-- Якщо є обраний дослідник
+		if canControl then
+			-- Можемо посадити дослідника на човен - ЖОВТИЙ
+			highlightObj.FillColor = Color3.fromRGB(0, 255, 0)
+			highlightObj.OutlineColor = Color3.fromRGB(0, 200, 0)
+			print("🚤 Човен доступний для посадки дослідника")
+		else
+			-- Не можемо посадити - ЧЕРВОНИЙ
+			highlightObj.FillColor = Color3.fromRGB(255, 50, 50)
+			highlightObj.OutlineColor = Color3.fromRGB(200, 0, 0)
+			print("❌ Човен недоступний для посадки")
+		end
 	else
-		-- Золотий для чужих човнів
-		highlightObj.FillColor = Color3.fromRGB(255, 215, 0)
-		highlightObj.OutlineColor = Color3.fromRGB(218, 165, 32)
+		-- Немає обраного дослідника
+		if canControl then
+			-- Можемо рухати човен - ЗЕЛЕНИЙ
+			highlightObj.FillColor = Color3.fromRGB(0, 255, 0)
+			highlightObj.OutlineColor = Color3.fromRGB(0, 200, 0)
+			print("✅ Можна рухати човен")
+		else
+			-- Не можемо рухати човен - ЧЕРВОНИЙ
+			highlightObj.FillColor = Color3.fromRGB(255, 50, 50)
+			highlightObj.OutlineColor = Color3.fromRGB(200, 0, 0)
+			print("❌ Не можна рухати човен")
+		end
 	end
 
 	highlightObj.FillTransparency = 0.6
@@ -1900,10 +1930,10 @@ RunService.Heartbeat:Connect(function()
 	-- 5. Якщо ні на що не наведено - відновлюємо стандартний UI
 	if not hoveredBoat and not hoveredExplorer and selectionFrame.Visible then
 		if selectedExplorer then
-			-- Якщо є обраний дослідник, показуємо інформацію про нього
+			-- Якщо є обраний дослідник, показуємо інформацію про нь��го
 			updateSelectionUI(selectedExplorer)
 		elseif selectedBoat then
-			-- Якщо є обраний човен, показуємо інформацію про нього
+			-- Якщ�� є обраний човен, показуємо інформацію про нього
 			titleLabel.Text = "🚤 ОБРАНО ЧОВЕН"
 			infoLabel.Text = "Оберіть водний тайл для переміщення човна"
 		else
