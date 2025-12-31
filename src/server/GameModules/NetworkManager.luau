@@ -53,6 +53,14 @@ function NetworkManager.new()
 	self.moveBoatEvent.Name = "MoveBoatEvent"
 	self.moveBoatEvent.Parent = eventsFolder
 
+	self.selectFloodTileEvent = Instance.new("RemoteEvent")
+	self.selectFloodTileEvent.Name = "SelectFloodTileEvent"
+	self.selectFloodTileEvent.Parent = eventsFolder
+
+	self.confirmFloodEvent = Instance.new("RemoteEvent")
+	self.confirmFloodEvent.Name = "ConfirmFloodEvent"
+	self.confirmFloodEvent.Parent = eventsFolder
+
 	return self
 end
 
@@ -95,6 +103,14 @@ end
 
 function NetworkManager:getMoveBoatEvent()
 	return self.moveBoatEvent
+end
+
+function NetworkManager:getSelectFloodTileEvent()
+	return self.selectFloodTileEvent
+end
+
+function NetworkManager:getConfirmFloodEvent()
+	return self.confirmFloodEvent
 end
 
 return NetworkManager

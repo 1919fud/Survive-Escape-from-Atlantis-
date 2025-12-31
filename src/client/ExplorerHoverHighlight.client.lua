@@ -25,6 +25,7 @@ local selectionHighlight = nil
 local selectedBoat = nil
 local availableBoatTiles = {}
 local boatTileHighlights = {}
+local floodHighlights = {}
 local isGamePhaseActive = false
 local isMyTurn = false
 local availableTiles = {} -- Таблиця доступних для переміщення тайлів
@@ -810,55 +811,6 @@ local function showBoatInfo(boat)
 	selectionFrame.Visible = true
 	selectionFrame.Size = UDim2.new(0, 320, 0, hasSelectedExplorer and 180 or 140)
 	selectionFrame.Position = UDim2.new(0.5, -160, 0.05, 0)
-
-	--[[titleLabel.Text = "🚤 ІНФОРМАЦІЯ ПРО ЧОВЕН"
-
-	if hasSelectedExplorer then
-		infoLabel.Text = boatInfo .. "\n\n🎯 Оберіть дію:"
-
-		-- Додаємо кнопку "Посадити дослідника"
-		local actionButton = selectionFrame:FindFirstChild("BoardBoatButton")
-		if not actionButton then
-			actionButton = Instance.new("TextButton")
-			actionButton.Name = "BoardBoatButton"
-			actionButton.Size = UDim2.new(0, 180, 0, 30)
-			actionButton.Position = UDim2.new(0.5, -90, 0.8, 0)
-			actionButton.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
-			actionButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-			actionButton.Text = "🚤 ПОСАДИТИ ДОСЛІДНИКА"
-			actionButton.TextSize = 12
-			actionButton.Font = Enum.Font.GothamBold
-			actionButton.Parent = selectionFrame
-
-			local UICornerBtn = Instance.new("UICorner")
-			UICornerBtn.CornerRadius = UDim.new(0, 4)
-			UICornerBtn.Parent = actionButton
-
-			-- Обробник кліку на кнопку
-			actionButton.MouseButton1Click:Connect(function()
-				local boatQ = boat:GetAttribute("Q")
-				local boatR = boat:GetAttribute("R")
-				local boatId = boat:GetAttribute("BoatId")
-				local explorerId = selectedExplorer:GetAttribute("ExplorerId")
-
-				print("🚤 Користувач клікнув посадити дослідника на човен")
-				MoveExplorerEvent:FireServer(explorerId, boatQ, boatR)
-				clearSelectionState()
-			end)
-		end
-		actionButton.Visible = true
-	else
-		infoLabel.Text = boatInfo
-			.. "\n\nℹ️ Оберіть дослідника, щоб посадити на човен"
-
-		-- Ховаємо кнопку, якщо немає обраного дослідника
-		local actionButton = selectionFrame:FindFirstChild("BoardBoatButton")
-		if actionButton then
-			actionButton.Visible = false
-		end
-	end
-]]
-	--
 	closeButton.Visible = true
 	closeButton.Position = UDim2.new(0.5, -40, 1, -30)
 end
@@ -1617,88 +1569,180 @@ local function updateBoatPosition(boatId, q, r)
 end
 
 -- Обробник подій гри
-GameStartEvent.OnClientEvent:Connect(function(data)
-	print("📡 Отримано подію гри:", data.phase)
 
-	if data.phase == "main_game_active" then
-		-- Основная игра началась
-		isGamePhaseActive = true
-		isMyTurn = false -- Пока не наш хід
-		print("🎮 Основна гра активна. Чекаємо на хід...")
-	elseif data.phase == "main_game_turn" and data.isYourTurn then
-		-- Наш хід в основной игре
-		isGamePhaseActive = true
-		isMyTurn = true
-		print("🎮 Ваш хід! Можете обирати дослідників")
-		print("  Залишилось дій:", data.remainingActions or 3)
+local function highlightFloodTiles(tiles, floodType)
+	clearTileHighlights() -- Очищаємо попередні підсвічування
 
-		-- Показываем UI выбора
-		selectionFrame.Visible = true
-		titleLabel.Text = "🕵️ ВАШ ХІД"
-		infoLabel.Text = string.format(
-			"Ваш хід!\nЗалишилось дій: %d/%d\nОберіть дослідника для переміщення",
-			data.remainingActions or 3,
-			data.maxActions or 3
-		)
-	elseif data.phase == "main_game_waiting" then
-		-- Ждем своего хода
-		isGamePhaseActive = true
-		isMyTurn = false
-		print("⏳ Чекайте свій хід... Зараз ходить інший гравець")
-		selectionFrame.Visible = false
+	for _, tileData in ipairs(tiles) do
+		local tile = tileData.tileData and tileData.tileData.meshPart
+		if tile then
+			local highlight = Instance.new("Highlight")
+			highlight.Name = "FloodTileHighlight"
 
-		-- Очищаем подсветку
-		if currentHighlight then
-			currentHighlight:Destroy()
-			currentHighlight = nil
-		end
-		if selectionHighlight then
-			selectionHighlight:Destroy()
-			selectionHighlight = nil
-		end
-		clearTileHighlights()
-		currentHoveredExplorer = nil
-		selectedExplorer = nil
-	elseif data.phase == "placement" or data.phase == "placement_complete" or data.phase == "boats_placement" then
-		-- Фазы размещения - отключаем подсветку
-		isGamePhaseActive = false
-		isMyTurn = false
-		print("⏸️ Фаза розміщення - підсвічування вимкнено")
+			-- Різні кольори для різних типів тайлів
+			local colors = {
+				Beach = Color3.fromRGB(255, 200, 0), -- Жовтий для пляжів
+				Forest = Color3.fromRGB(0, 200, 0), -- Зелений для лісів
+				Mountain = Color3.fromRGB(150, 150, 150), -- Сірий для гір
+			}
 
-		-- Очищаем подсветку и UI
-		if currentHighlight then
-			currentHighlight:Destroy()
-			currentHighlight = nil
-		end
-		if selectionHighlight then
-			selectionHighlight:Destroy()
-			selectionHighlight = nil
-		end
-		clearTileHighlights()
-		currentHoveredExplorer = nil
-		selectedExplorer = nil
-		selectionFrame.Visible = false
-	elseif data.phase == "main_game_ended" or data.phase == "game_over" then
-		-- Игра завершена
-		isGamePhaseActive = false
-		isMyTurn = false
-		print("⏹️ Гра завершена - підсвічування вимкнено")
+			highlight.FillColor = colors[floodType] or Color3.fromRGB(255, 100, 100)
+			highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+			highlight.FillTransparency = 0.5
+			highlight.OutlineTransparency = 0
+			highlight.Parent = tile
 
-		-- Очищаем подсветку и UI
-		if currentHighlight then
-			currentHighlight:Destroy()
-			currentHighlight = nil
+			-- Додаємо BillboardGui з інформацією
+			local billboard = Instance.new("BillboardGui")
+			billboard.Name = "FloodInfo"
+			billboard.Size = UDim2.new(2, 0, 2, 0)
+			billboard.StudsOffset = Vector3.new(0, 3, 0)
+			billboard.AlwaysOnTop = true
+			billboard.Adornee = tile
+			billboard.Parent = tile
+
+			local label = Instance.new("TextLabel")
+			label.Size = UDim2.new(1, 0, 1, 0)
+			label.BackgroundTransparency = 1
+			label.TextColor3 = Color3.fromRGB(255, 255, 255)
+			label.Text = "🌊 Затопити"
+			label.Font = Enum.Font.GothamBold
+			label.TextScaled = true
+			label.Parent = billboard
 		end
-		if selectionHighlight then
-			selectionHighlight:Destroy()
-			selectionHighlight = nil
-		end
-		clearTileHighlights()
-		currentHoveredExplorer = nil
-		selectedExplorer = nil
-		selectionFrame.Visible = false
 	end
-end)
+end
+
+local floodScreenGui = Instance.new("ScreenGui")
+floodScreenGui.Name = "FloodPhaseUI"
+floodScreenGui.Parent = PlayerGui
+floodScreenGui.Enabled = false
+
+local floodFrame = Instance.new("Frame")
+floodFrame.Size = UDim2.new(0, 400, 0, 200)
+floodFrame.Position = UDim2.new(0.5, -200, 0.5, -100)
+floodFrame.BackgroundColor3 = Color3.fromRGB(0, 50, 100)
+floodFrame.BackgroundTransparency = 0.2
+floodFrame.BorderSizePixel = 0
+floodFrame.Visible = false
+floodFrame.Parent = floodScreenGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 10)
+UICorner.Parent = floodFrame
+
+local floodTitle = Instance.new("TextLabel")
+floodTitle.Name = "FloodTitle"
+floodTitle.Size = UDim2.new(1, 0, 0, 40)
+floodTitle.Position = UDim2.new(0, 0, 0, 0)
+floodTitle.BackgroundColor3 = Color3.fromRGB(0, 30, 60)
+floodTitle.BackgroundTransparency = 0.3
+floodTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+floodTitle.Text = "🌊 ФАЗА ЗАТОПЛЕННЯ"
+floodTitle.TextSize = 20
+floodTitle.Font = Enum.Font.GothamBold
+floodTitle.Parent = floodFrame
+
+local floodInfo = Instance.new("TextLabel")
+floodInfo.Name = "FloodInfo"
+floodInfo.Size = UDim2.new(1, -20, 0, 120)
+floodInfo.Position = UDim2.new(0, 10, 0, 50)
+floodInfo.BackgroundTransparency = 1
+floodInfo.TextColor3 = Color3.fromRGB(220, 220, 220)
+floodInfo.TextSize = 16
+floodInfo.TextWrapped = true
+floodInfo.Font = Enum.Font.Gotham
+floodInfo.Text = "Оберіть тайл для затоплення"
+floodInfo.Parent = floodFrame
+
+local confirmButton = Instance.new("TextButton")
+confirmButton.Name = "ConfirmButton"
+confirmButton.Size = UDim2.new(0, 150, 0, 40)
+confirmButton.Position = UDim2.new(0.5, -75, 1, -60)
+confirmButton.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+confirmButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+confirmButton.Text = "ПІДТВЕРДИТИ"
+confirmButton.TextSize = 16
+confirmButton.Font = Enum.Font.GothamBold
+confirmButton.Visible = false
+confirmButton.Parent = floodFrame
+
+local UICorner2 = Instance.new("UICorner")
+UICorner2.CornerRadius = UDim.new(0, 5)
+UICorner2.Parent = confirmButton
+
+local function showFloodPhaseUI(data)
+	floodScreenGui.Enabled = true
+	floodFrame.Visible = true
+
+	-- Оновлюємо інформацію в UI
+	-- ...
+end
+
+local function clearFloodHighlightsOnClient()
+	local map = workspace:WaitForChild("Map")
+
+	-- Очищаємо FloodTileHighlight
+	for _, obj in ipairs(map:GetDescendants()) do
+		if obj:IsA("MeshPart") then
+			-- FloodTileHighlight
+			local floodHighlight = obj:FindFirstChild("FloodTileHighlight")
+			if floodHighlight then
+				floodHighlight:Destroy()
+			end
+
+			-- FloodInfo Billboard
+			local floodInfo = obj:FindFirstChild("FloodInfo")
+			if floodInfo then
+				floodInfo:Destroy()
+			end
+
+			-- CostDisplay (якщо залишився)
+			local costDisplay = obj:FindFirstChild("CostDisplay")
+			if costDisplay then
+				costDisplay:Destroy()
+			end
+
+			-- BoatMovementHighlight (для безпеки)
+			local boatHighlight = obj:FindFirstChild("BoatMovementHighlight")
+			if boatHighlight then
+				boatHighlight:Destroy()
+			end
+
+			-- BoatCostDisplay
+			local boatCost = obj:FindFirstChild("BoatCostDisplay")
+			if boatCost then
+				boatCost:Destroy()
+			end
+		end
+	end
+
+	-- Також очищаємо AvailableTileHighlight
+	for _, highlight in ipairs(tileHighlights) do
+		if highlight and highlight.Parent then
+			highlight:Destroy()
+		end
+	end
+	tileHighlights = {}
+
+	-- Очищаємо boatTileHighlights
+	for _, highlight in ipairs(boatTileHighlights) do
+		if highlight and highlight.Parent then
+			highlight:Destroy()
+		end
+	end
+	boatTileHighlights = {}
+
+	-- Очищаємо floodHighlights
+	for _, highlight in ipairs(floodHighlights) do
+		if highlight and highlight.Parent then
+			highlight:Destroy()
+		end
+	end
+	floodHighlights = {}
+
+	print("✅ [КЛІЄНТ] Всі підсвічування затоплення очищені")
+end
 
 HighlightTilesEvent.OnClientEvent:Connect(function(data)
 	if data and data.type == "movement" then
@@ -1713,6 +1757,8 @@ HighlightTilesEvent.OnClientEvent:Connect(function(data)
 		--
 	elseif data and data.type == "clear" then
 		clearTileHighlights()
+		clearBoatTileHighlights()
+		isMovementMode = false
 	elseif data and data.type == "explorer_water_blocked" then
 		-- Випадок, коли дослідник вже входив у воду
 		print("💧 Дослідник заблокований для руху - вже входив у воду!")
@@ -1806,6 +1852,192 @@ HighlightTilesEvent.OnClientEvent:Connect(function(data)
 				end
 			end)
 		end
+	elseif data.type == "flood_selection" then
+		print("🌊 Доступні тайли для затоплення: " .. #data.availableTiles)
+
+		-- ОЧИЩАЄМО всі попередні підсвічування
+		clearTileHighlights()
+		clearBoatTileHighlights()
+
+		-- Вимикаємо режим руху
+		isMovementMode = false
+
+		-- Підсвічуємо доступні тайли для затоплення
+		highlightFloodTiles(data.availableTiles, data.floodType)
+
+		-- Оновлюємо UI
+		if floodFrame.Visible then
+			floodInfo.Text = "🌊 Оберіть тайл для затоплення\n\nТип: "
+				.. data.floodTypeName
+				.. "\nДоступно: "
+				.. #data.availableTiles
+				.. " тайлів"
+			confirmButton.Visible = false
+		end
+	elseif data.type == "flood_tile_selected" then
+		print("✅ Обрано тайл для затоплення: Q=" .. data.q .. " R=" .. data.r)
+
+		-- Показуємо кнопку підтвердження
+		if floodFrame.Visible then
+			floodInfo.Text = "✅ Обрано тайл Q="
+				.. data.q
+				.. " R="
+				.. data.r
+				.. "\n\n📌 Натисніть ПІДТВЕРДИТИ"
+			confirmButton.Visible = true
+		end
+	elseif data.type == "tile_flooded" then
+		print("🌊 Тайл затоплено: Q=" .. data.q .. " R=" .. data.r .. " (" .. data.originalType .. ")")
+
+		-- ОЧИЩАЄМО всі підсвічування
+		clearTileHighlights()
+		clearBoatTileHighlights()
+
+		-- Вимикаємо режим руху
+		isMovementMode = false
+
+		-- Оновлюємо UI
+		if floodFrame.Visible then
+			floodInfo.Text =
+				"✅ Тайл затоплено!\n\n🔄 Повернення до основної гри..."
+		end
+
+		-- Ховаємо UI затоплення через 2 секунди
+		task.delay(2, function()
+			if floodFrame then
+				floodScreenGui.Enabled = false
+				floodFrame.Visible = false
+				confirmButton.Visible = false
+			end
+		end)
+	elseif data.type == "clear_flood_highlights" then
+		print("🧹 [КЛІЄНТ] Очищення підсвічувань затоплення")
+		clearFloodHighlightsOnClient()
+	elseif data.type == "tile_flooded" then
+		-- Після затоплення також очищаємо
+		task.delay(0.5, function() -- Трохи затримки для анімації
+			clearFloodHighlightsOnClient()
+		end)
+	end
+end)
+
+local function clearAllHighlights()
+	-- Очищаємо підсвічування руху
+	for _, highlight in ipairs(tileHighlights) do
+		if highlight and highlight.Parent then
+			highlight:Destroy()
+		end
+	end
+	tileHighlights = {}
+
+	-- Очищаємо підсвічування човнів
+	for _, highlight in ipairs(boatTileHighlights) do
+		if highlight and highlight.Parent then
+			highlight:Destroy()
+		end
+	end
+	boatTileHighlights = {}
+
+	-- Очищаємо підсвічування затоплення
+	for _, highlight in ipairs(floodHighlights) do
+		if highlight and highlight.Parent then
+			highlight:Destroy()
+		end
+	end
+	floodHighlights = {}
+
+	isMovementMode = false
+end
+local function highlightFloodTiles(tiles, floodType)
+	-- Очищаємо попередні підсвічування
+	for _, highlight in ipairs(floodHighlights) do
+		if highlight and highlight.Parent then
+			highlight:Destroy()
+		end
+	end
+	floodHighlights = {}
+
+	-- Кольори для різних типів тайлів
+	local colors = {
+		Beach = Color3.fromRGB(255, 200, 0), -- Жовтий
+		Forest = Color3.fromRGB(0, 200, 100), -- Зелений
+		Mountain = Color3.fromRGB(150, 150, 150), -- Сірий
+	}
+
+	for _, tileData in ipairs(tiles) do
+		local tile = tileData.tileData and tileData.tileData.meshPart
+		if tile then
+			local highlight = Instance.new("Highlight")
+			highlight.Name = "FloodTileHighlight"
+
+			highlight.FillColor = colors[floodType] or Color3.fromRGB(255, 100, 100)
+			highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+			highlight.FillTransparency = 0.5
+			highlight.OutlineTransparency = 0
+			highlight.Parent = tile
+
+			-- Ефект пульсації
+			coroutine.wrap(function()
+				while highlight and highlight.Parent == tile do
+					local tweenInfo1 = TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+					local tween1 = TweenService:Create(highlight, tweenInfo1, { FillTransparency = 0.3 })
+					tween1:Play()
+					tween1.Completed:Wait()
+
+					if not highlight or highlight.Parent ~= tile then
+						break
+					end
+
+					local tweenInfo2 = TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+					local tween2 = TweenService:Create(highlight, tweenInfo2, { FillTransparency = 0.7 })
+					tween2:Play()
+					tween2.Completed:Wait()
+				end
+			end)()
+
+			table.insert(floodHighlights, highlight)
+		end
+	end
+end
+
+-- Обробник кліку на кнопку підтвердження
+confirmButton.MouseButton1Click:Connect(function()
+	local SelectFloodTileEvent = GameEvents:WaitForChild("SelectFloodTileEvent")
+	local ConfirmFloodEvent = GameEvents:WaitForChild("ConfirmFloodEvent")
+
+	-- Відправляємо підтвердження на сервер
+	ConfirmFloodEvent:FireServer()
+
+	-- Ховаємо кнопку
+	confirmButton.Visible = false
+	floodInfo.Text = "⏳ Затоплення виконується..."
+end)
+
+-- Обробник кліків по тайлах у фазі затоплення
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then
+		return
+	end
+
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		local target = mouse.Target
+		if target then
+			-- Перевіряємо, чи це підсвічений тайл для затоплення
+			local highlight = target:FindFirstChild("FloodTileHighlight")
+			if highlight then
+				-- Отримуємо координати тайлу
+				local q = target:GetAttribute("Q") or target:GetAttribute("q")
+				local r = target:GetAttribute("R") or target:GetAttribute("r")
+
+				if q and r then
+					print("🌊 Клік по тайлу для затоплення: Q=" .. q .. " R=" .. r)
+
+					-- Відправляємо вибір на сервер
+					local SelectFloodTileEvent = GameEvents:WaitForChild("SelectFloodTileEvent")
+					SelectFloodTileEvent:FireServer(q, r)
+				end
+			end
+		end
 	end
 end)
 
@@ -1818,7 +2050,7 @@ local function updateHoverUI(hoveredBoat, hoveredExplorer)
 	if hoveredBoat then
 		local boatInfo = getBoatInfo(hoveredBoat)
 		titleLabel.Text = "🚤 ЧОВЕН"
-		infoLabel.Text = boatInfo .. "\n\n🖱️ Натисніть, щоб обрати"
+		infoLabel.Text = boatInfo .. "\n\n🖱️ Натисніть, ��об обрати"
 
 	-- Якщо навели на дослідника
 	elseif hoveredExplorer then
@@ -2378,6 +2610,182 @@ UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
 				end
 			end)
 		end
+	elseif data.type == "explorer_moved_by_flood" then
+		print("👤 Дослідник переміщений через затоплення: ID=" .. data.explorerId)
+
+		-- Знаходимо дослідника в workspace
+		for _, obj in ipairs(workspace:GetChildren()) do
+			if obj:GetAttribute("IsExplorer") and obj:GetAttribute("ExplorerId") == data.explorerId then
+				-- Оновлюємо позицію
+				updateExplorerPosition(obj, data.toQ, data.toR)
+				break
+			end
+		end
+	elseif data.type == "tile_flooded" then
+		print("🌊 [КЛІЄНТ] Тайл затоплено: Q=" .. data.q .. " R=" .. data.r)
+
+		-- Видаляємо візуал острова
+		local map = workspace:WaitForChild("Map")
+		for _, obj in ipairs(map:GetDescendants()) do
+			if obj:IsA("MeshPart") then
+				local tileQ = obj:GetAttribute("Q") or obj:GetAttribute("q")
+				local tileR = obj:GetAttribute("R") or obj:GetAttribute("r")
+				local isLand = obj:GetAttribute("IsLand")
+
+				if tileQ == data.q and tileR == data.r and isLand == true then
+					print("🗑️ [КЛІЄНТ] Видаляємо острівний тайл:", obj.Name)
+					obj:Destroy()
+				end
+			end
+		end
+
+		-- АКТИВУЄМО водний тайл
+		for _, obj in ipairs(map:GetDescendants()) do
+			if obj:IsA("MeshPart") then
+				local tileQ = obj:GetAttribute("Q") or obj:GetAttribute("q")
+				local tileR = obj:GetAttribute("R") or obj:GetAttribute("r")
+				local isWater = obj:GetAttribute("IsWater") or obj:GetAttribute("Placeboat")
+
+				if tileQ == data.q and tileR == data.r and isWater then
+					print("💧 [КЛІЄНТ] Активуємо водний тайл:", obj.Name)
+
+					-- Відтворюємо анімацію появи води
+					obj.Transparency = 1 -- Спочатку невидимий
+
+					local tweenInfo = TweenInfo.new(1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+					local tween = TweenService:Create(obj, tweenInfo, {
+						Transparency = 0,
+						Color = Color3.fromRGB(0, 100, 200),
+					})
+					tween:Play()
+
+					obj.Material = Enum.Material.Water
+					break
+				end
+			end
+		end
+	end
+end)
+
+GameStartEvent.OnClientEvent:Connect(function(data)
+	print("📡 Отримано подію гри:", data.phase)
+
+	if data.phase == "main_game_active" then
+		-- Основная игра началась
+		isGamePhaseActive = true
+		isMyTurn = false -- Пока не наш хід
+		print("🎮 Основна гра активна. Чекаємо на хід...")
+	elseif data.phase == "main_game_turn" and data.isYourTurn then
+		clearAllHighlights()
+		-- Наш хід в основной игре
+		floodScreenGui.Enabled = false
+		floodFrame.Visible = false
+		confirmButton.Visible = false
+
+		isGamePhaseActive = true
+		isMyTurn = true
+		print("🎮 Ваш хід! Можете обирати дослідників")
+		print("  Залишилось дій:", data.remainingActions or 3)
+
+		-- Показываем UI выбора
+		selectionFrame.Visible = true
+		titleLabel.Text = "🕵️ ВАШ ХІД"
+		infoLabel.Text = string.format(
+			"Ваш хід!\nЗалишилось дій: %d/%d\nОберіть дослідника для переміщення",
+			data.remainingActions or 3,
+			data.maxActions or 3
+		)
+	elseif data.phase == "main_game_waiting" then
+		-- Ждем своего хода
+		floodScreenGui.Enabled = false
+		floodFrame.Visible = false
+		isGamePhaseActive = true
+		isMyTurn = false
+		print("⏳ Чекайте свій хід... Зараз ходить інший гравець")
+		selectionFrame.Visible = false
+
+		-- Очищаем подсветку
+		if currentHighlight then
+			currentHighlight:Destroy()
+			currentHighlight = nil
+		end
+		if selectionHighlight then
+			selectionHighlight:Destroy()
+			selectionHighlight = nil
+		end
+		clearTileHighlights()
+		currentHoveredExplorer = nil
+		selectedExplorer = nil
+	elseif data.phase == "placement" or data.phase == "placement_complete" or data.phase == "boats_placement" then
+		-- Фазы размещения - отключаем подсветку
+		isGamePhaseActive = false
+		isMyTurn = false
+		print("⏸️ Фаза розміщення - підсвічування вимкнено")
+
+		-- Очищаем подсветку и UI
+		if currentHighlight then
+			currentHighlight:Destroy()
+			currentHighlight = nil
+		end
+		if selectionHighlight then
+			selectionHighlight:Destroy()
+			selectionHighlight = nil
+		end
+		clearTileHighlights()
+		currentHoveredExplorer = nil
+		selectedExplorer = nil
+		selectionFrame.Visible = false
+	elseif data.phase == "flood_phase_started" then
+		-- ОЧИЩАЄМО всі підсвічування
+		clearAllHighlights()
+
+		-- Приховуємо основне UI
+		selectionFrame.Visible = false
+
+		-- Показуємо UI затоплення
+		floodScreenGui.Enabled = true
+		floodFrame.Visible = true
+
+		if data.currentPlayer == player.Name then
+			floodTitle.Text = "🌊 ВАША ЧЕРГА ЗАТОПЛЮВАТИ"
+			floodInfo.Text = "Оберіть тайл для затоплення\n\nТип: "
+				.. (data.floodTypeName or "Пляжі")
+			isMyTurn = true
+		else
+			floodTitle.Text = "🌊 ФАЗА ЗАТОПЛЕННЯ"
+			floodInfo.Text = data.message
+				or "⏳ Чекайте поки " .. data.currentPlayer .. " обере тайл"
+			isMyTurn = false
+		end
+
+		confirmButton.Visible = false
+		isGamePhaseActive = false
+	elseif data.phase == "flood_start" then
+		-- Показуємо загальну інформацію
+		floodScreenGui.Enabled = true
+		floodFrame.Visible = true
+		floodTitle.Text = "🌊 ФАЗА ЗАТОПЛЕННЯ"
+		floodInfo.Text = data.message .. "\n\nЗатоплюємо: " .. data.floodTypeName
+		confirmButton.Visible = false
+	elseif data.phase == "main_game_ended" or data.phase == "game_over" then
+		-- Игра завершена
+		isGamePhaseActive = false
+		isMyTurn = false
+		print("⏹️ Гра завершена - підсвічування вимкнено")
+
+		-- Очищаем подсветку и UI
+		if currentHighlight then
+			currentHighlight:Destroy()
+			currentHighlight = nil
+		end
+		if selectionHighlight then
+			selectionHighlight:Destroy()
+			selectionHighlight = nil
+		end
+		clearTileHighlights()
+		currentHoveredExplorer = nil
+		selectedExplorer = nil
+		selectionFrame.Visible = false
 	end
 end)
 local function debugAllBoats()

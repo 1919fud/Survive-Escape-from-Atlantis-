@@ -23,6 +23,9 @@ function AtlantisGame.new()
 	-- ДОБАВЛЕНО: Система размещения
 	self.placementPhase = PlacementPhase.new()
 	self.gameState = "ready" -- ready, placement, main_game
+	self.floodPhase = nil
+	self.floodPhase = require(GameModules:WaitForChild("FloodPhase")).new()
+	self.floodPhase.mainGame = self
 
 	print("✅ AtlantisGame инициализирован")
 
@@ -37,6 +40,7 @@ function AtlantisGame:start()
 	self:setupPlayerHandlers()
 	self:setupExplorerPlacement()
 	self:setupMainGameHandlers()
+	self:setupFloodPhaseHandlers()
 end
 
 function AtlantisGame:initializeMap()
@@ -95,6 +99,25 @@ function AtlantisGame:setupMainGameHandlers()
 	-- add
 
 	print("✅ Основные игровые обработчики настроены")
+end
+
+function AtlantisGame:setupFloodPhaseHandlers()
+	print("🌊 Налаштування обробників фази затоплення...")
+
+	local SelectFloodTileEvent = self.networkManager:getSelectFloodTileEvent()
+	local ConfirmFloodEvent = self.networkManager:getConfirmFloodEvent()
+
+	SelectFloodTileEvent.OnServerEvent:Connect(function(player, q, r)
+		print("🌊 Гравець", player.Name, "обрав тайл для затоплення Q=", q, "R=", r)
+		self.floodPhase:handleTileSelection(player, q, r)
+	end)
+
+	ConfirmFloodEvent.OnServerEvent:Connect(function(player)
+		print("🌊 Гравець", player.Name, "підтвердив затоплення")
+		self.floodPhase:confirmFlood(player)
+	end)
+
+	print("✅ Обробники фази затоплення налаштовані")
 end
 
 function AtlantisGame:onPlayerJoined(player)
@@ -500,6 +523,64 @@ function AtlantisGame:startMainGamePhase()
 	})
 
 	-- Запускаємо перший хід
+	self:startPlayerTurn()
+end
+
+function AtlantisGame:startFloodPhase(player)
+	print("🌊 Початок фази затоплення для гравця:", player.Name)
+
+	-- Зупиняємо основну гру
+	self.isGameActive = false
+	self.gameState = "flood"
+
+	-- Ініціалізуємо та починаємо фазу затоплення
+	self.floodPhase:start(player, self.players, self.networkManager, self.mapManager)
+
+	-- Уведомляємо всіх гравців
+	self.networkManager:getGameStartEvent():FireAllClients({
+		phase = "flood_phase_started",
+		message = "🌊 ФАЗА ЗАТОПЛЕННЯ!",
+		currentPlayer = player.Name,
+	})
+
+	-- Скидаємо дії для наступного ходу
+	self.turnManager:nextTurn()
+end
+
+function AtlantisGame:returnToMainGame()
+	print("🔄 Повернення до основної гри після затоплення")
+
+	self.gameState = "main_game"
+	self.isGameActive = true
+
+	-- Переходимо до наступного гравця
+	local nextPlayer = self.turnManager:nextTurn()
+	self:startPlayerTurn()
+end
+
+function AtlantisGame:returnToMainGameAfterFlood()
+	print("🔄 Повернення до основної гри після затоплення")
+
+	-- Очищаємо всі підсвічування
+	self.networkManager:getHighlightTilesEvent():FireAllClients({
+		type = "clear",
+	})
+
+	-- Повертаємо стан гри
+	self.gameState = "main_game"
+	self.isGameActive = true
+
+	-- Сповіщаємо клієнтів
+	self.networkManager:getGameStartEvent():FireAllClients({
+		phase = "flood_complete",
+		message = "🌊 Фаза затоплення завершена!",
+		returnToMainGame = true,
+	})
+
+	-- Чекаємо 1 секунду для анімації
+	task.wait(1)
+
+	-- Починаємо хід поточного гравця
 	self:startPlayerTurn()
 end
 
@@ -1586,38 +1667,36 @@ function AtlantisGame:onPlayerMoveBoat(player, boatId, q, r)
 end
 
 function AtlantisGame:endPlayerTurn(player)
-	print("🎮 [СЕРВЕР] Завершення ходу гравця:", player.Name)
+	print("🎮 [СЕРВЕР] Завершення хоку гравця:", player.Name)
 
-	-- Скидаємо прапори входу у воду для всіх дослідників гравця
+	-- Скидаємо прапори входу у воду
 	local playerData = self.players[player]
 	if playerData and playerData.explorers then
 		for _, explorer in ipairs(playerData.explorers) do
 			explorer.hasEnteredWaterThisTurn = false
-			explorer.hasEnteredWaterThisTurn = nil
 		end
-		print(
-			"💧 Скинуто прапори входу у воду для всіх дослідників гравця"
-		)
 	end
 
-	-- Скидаємо виділення у клієнта
+	-- Скидаємо виділення
 	self.networkManager:getHighlightTilesEvent():FireClient(player, {
 		type = "clear",
 	})
 
-	-- Відправляємо подію про завершення ходу
-	self.networkManager:getUpdateReadyStatusEvent():FireClient(player, {
-		type = "turn_ended",
-		message = "Ваш хід завершено! Чекайте наступного ходу.",
-	})
+	-- Перевіряємо, чи всі дії використані
+	local remainingActions = self.turnManager:getRemainingActions(player)
 
-	-- Переходимо до наступного гравця
-	local nextPlayer = self.turnManager:nextTurn()
-
-	-- Уведомляем всех о новом ходе
-	self:startPlayerTurn()
-
-	return nextPlayer
+	if remainingActions <= 0 then
+		print("🌊 Усі дії використано - починаємо фазу затоплення")
+		self:startFloodPhase(player)
+	else
+		-- Якщо ще є дії, продовжуємо хід
+		print("🎯 Ще є дії: " .. remainingActions)
+		self.networkManager:getUpdateReadyStatusEvent():FireClient(player, {
+			type = "actions_remaining",
+			message = "У вас ще є дії!",
+			remainingActions = remainingActions,
+		})
+	end
 end
 
 -- Создание и запуск игры
