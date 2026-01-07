@@ -29,7 +29,7 @@ local selectedTreasureValue = nil
 local isPlacementMode = false
 local isMyTurn = false
 local explorersPlaced = 0
-local maxExplorers = 10
+local maxExplorers = 4
 local currentPlayersData = {}
 local currentHighlightedTile = nil
 

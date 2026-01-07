@@ -126,7 +126,7 @@ function AtlantisGame:onPlayerJoined(player)
 	self.players[player] = {
 		name = player.Name,
 		explorersPlaced = 0,
-		maxExplorers = 10,
+		maxExplorers = 4,
 		explorers = {},
 	}
 
@@ -225,50 +225,49 @@ function AtlantisGame:getAvailableMovementTiles(explorer, maxSteps)
 
 		-- Якщо ще можемо робити кроки
 		if current.steps < maxSteps then
-			local directions = {
-				{ 1, 0 },
-				{ 1, -1 },
-				{ 0, -1 },
-				{ -1, 0 },
-				{ -1, 1 },
-				{ 0, 1 },
-			}
+			-- Якщо ми вже зайшли у воду
+			if current.hasEnteredWater then
+			-- Нічого не робимо, переходимо до наступного елемента черги
+			else
+				local directions = {
+					{ 1, 0 },
+					{ 1, -1 },
+					{ 0, -1 },
+					{ -1, 0 },
+					{ -1, 1 },
+					{ 0, 1 },
+				}
 
-			for _, dir in ipairs(directions) do
-				local nq = current.q + dir[1]
-				local nr = current.r + dir[2]
-				local neighborKey = self.mapManager:getCoordKey(nq, nr)
+				for _, dir in ipairs(directions) do
+					local nq = current.q + dir[1]
+					local nr = current.r + dir[2]
+					local neighborKey = self.mapManager:getCoordKey(nq, nr)
 
-				if not visited[neighborKey] then
-					-- Отримуємо тайл сусіда
-					local neighborTile = self.mapManager:getTileAtPosition(nq, nr)
-					if neighborTile then
-						local isNeighborWater = neighborTile.isWater or neighborTile.type == "Water"
-						local isNeighborLand = not isNeighborWater
+					if not visited[neighborKey] then
+						-- Отримуємо тайл сусіда
+						local neighborTile = self.mapManager:getTileAtPosition(nq, nr)
 
-						-- Перевіряємо можливість переходу
-						local canMoveToNeighbor = true
-						local newHasEnteredWater = current.hasEnteredWater
+						if neighborTile then
+							local isNeighborWater = neighborTile.isWater or neighborTile.type == "Water"
 
-						if isNeighborWater then
-							-- Перехід на воду
-							if current.hasEnteredWater then
-								-- Вже входив у воду на цьому ходу - не може знову
-								canMoveToNeighbor = false
-							else
-								-- Перший вхід у воду на цьому ходу
+							-- Перевіряємо можливість переходу
+							local canMoveToNeighbor = true
+							local newHasEnteredWater = current.hasEnteredWater -- буде false, бо ми в else блоці
+
+							if isNeighborWater then
+								-- Перший вхід у воду на цьому ходу (дозволено)
 								newHasEnteredWater = true
 							end
-						end
 
-						if canMoveToNeighbor then
-							visited[neighborKey] = true
-							table.insert(queue, {
-								q = nq,
-								r = nr,
-								steps = current.steps + 1,
-								hasEnteredWater = newHasEnteredWater,
-							})
+							if canMoveToNeighbor then
+								visited[neighborKey] = true
+								table.insert(queue, {
+									q = nq,
+									r = nr,
+									steps = current.steps + 1,
+									hasEnteredWater = newHasEnteredWater,
+								})
+							end
 						end
 					end
 				end

@@ -53,7 +53,7 @@ function PlacementPhase:start(players, networkManager)
 	for player, _ in pairs(players) do
 		self.playersData[player] = {
 			explorersPlaced = 0,
-			maxExplorers = 10,
+			maxExplorers = 4,
 			explorers = {},
 		}
 	end
