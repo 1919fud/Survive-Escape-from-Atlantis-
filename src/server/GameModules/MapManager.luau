@@ -66,15 +66,14 @@ end
 function MapManager:generateLandTiles()
 	local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-	-- Шаблоны
+	-- Шаблони
 	local _beachTemplate = ReplicatedStorage:WaitForChild("Beach")
 	local _forestTemplate = ReplicatedStorage:WaitForChild("Forest")
 	local _mountainTemplate = ReplicatedStorage:WaitForChild("Mountain")
 
 	-- Список всех нужных суш
 	local landTypes = {}
-
-	for _ = 1, 16 do
+	for _ = 0, 0 do
 		table.insert(landTypes, "Beach")
 	end
 	for _ = 1, 16 do
@@ -91,8 +90,33 @@ function MapManager:generateLandTiles()
 			tbl[i], tbl[j] = tbl[j], tbl[i]
 		end
 	end
-
 	shuffle(landTypes)
+
+	-- Спеціальні властивості для кожного типу плитки
+	local specialProperties = {
+		Beach = {
+			shark = 3, -- тільки 3 пляжі з акулою
+			kaiju = 3, -- тільки 3 пляжі з кайджю
+			boat = 1, -- тільки 1 пляж з човном
+		},
+		Forest = {
+			shark = 3, -- тільки 3 ліси з акулою
+			kaiju = 2, -- тільки 2 ліси з кайджю
+			boat = 3, -- тільки 3 ліси з човном
+			whirlpool = 2, -- тільки 2 ліси з водоверттю
+		},
+		Mountain = {
+			whirlpool = 4, -- тільки 4 гори з водоверттю
+			volcano = 4, -- тільки 4 гори з вулканом
+		},
+	}
+
+	-- Лічильники для кожного типу властивості
+	local propertyCounters = {
+		Beach = { shark = 0, kaiju = 0, boat = 0 },
+		Forest = { shark = 0, kaiju = 0, boat = 0, whirlpool = 0 },
+		Mountain = { whirlpool = 0, volcano = 0 },
+	}
 
 	-- Создаем землю на спавн-тайлах
 	local index = 1
@@ -101,10 +125,33 @@ function MapManager:generateLandTiles()
 			local landType = landTypes[index]
 			index += 1
 
-			local newLand = self:createLandTile(landType, spawnTile, placeTileNumber)
+			-- Визначаємо, яку властивість отримає ця плитка
+			local specialEffect = nil
+
+			-- Отримуємо список доступних властивостей для цього типу
+			local availableProperties = {}
+			for property, maxCount in pairs(specialProperties[landType] or {}) do
+				local currentCount = propertyCounters[landType][property] or 0
+				if currentCount < maxCount then
+					table.insert(availableProperties, property)
+				end
+			end
+
+			-- Якщо є доступні властивості, вибираємо випадкову
+			if #availableProperties > 0 then
+				local randomIndex = math.random(1, #availableProperties)
+				specialEffect = availableProperties[randomIndex]
+
+				-- Збільшуємо лічильник для цієї властивості
+				propertyCounters[landType][specialEffect] = (propertyCounters[landType][specialEffect] or 0) + 1
+			end
+
+			local newLand = self:createLandTile(landType, spawnTile, placeTileNumber, specialEffect)
+
 			if newLand then
 				-- Находим ближайший водный тайл и копируем его Q R
 				local waterTile = self:findNearestWaterTile(spawnTile.Position)
+
 				if waterTile then
 					local q = waterTile:GetAttribute("Q") or waterTile:GetAttribute("q")
 					local r = waterTile:GetAttribute("R") or waterTile:GetAttribute("r")
@@ -118,6 +165,7 @@ function MapManager:generateLandTiles()
 						coordKey = coordKey,
 						spawnPosition = placeTileNumber,
 						isFlooded = false,
+						specialEffect = specialEffect, -- Зберігаємо спецефект
 					}
 				else
 					warn("❌ Не найден водный тайл для спавна:", placeTileNumber)
@@ -126,7 +174,16 @@ function MapManager:generateLandTiles()
 		end
 	end
 
-	--print("🌍 Усього створено тайлів землі:", self:getLandTilesCount())
+	-- Виводимо статистику розподілу властивостей
+	print("📊 Статистика розподілу властивостей плиток:")
+	for landType, properties in pairs(propertyCounters) do
+		print("  " .. landType .. ":")
+		for property, count in pairs(properties) do
+			local maxCount = specialProperties[landType] and specialProperties[landType][property] or 0
+			print("    " .. property .. ": " .. count .. "/" .. maxCount)
+		end
+	end
+
 	return self.landTiles
 end
 
@@ -153,7 +210,7 @@ function MapManager:getLandTilesCount()
 	return count
 end
 
-function MapManager:createLandTile(landType, spawnTile, placeTileNumber)
+function MapManager:createLandTile(landType, spawnTile, placeTileNumber, specialEffect)
 	local ReplicatedStorage = game:GetService("ReplicatedStorage")
 	local template
 
@@ -180,6 +237,7 @@ function MapManager:createLandTile(landType, spawnTile, placeTileNumber)
 
 	-- Находим ближайший водный тайл и копируем его Q R
 	local waterTile = self:findNearestWaterTile(spawnTile.Position)
+
 	if waterTile then
 		local q = waterTile:GetAttribute("Q") or waterTile:GetAttribute("q")
 		local r = waterTile:GetAttribute("R") or waterTile:GetAttribute("r")
@@ -190,7 +248,49 @@ function MapManager:createLandTile(landType, spawnTile, placeTileNumber)
 		newLand:SetAttribute("Placetitle", placeTileNumber)
 		newLand:SetAttribute("IsLand", true)
 
-		--print("🌍 Поставив", landType, "на спавн", placeTileNumber, "→ Q=", q, "R=", r)
+		-- Додаємо атрибут спецефекту, якщо він є
+		if specialEffect then
+			newLand:SetAttribute("SpecialEffect", specialEffect)
+
+			-- Додаємо додаткові атрибути залежно від ефекту
+			if specialEffect == "volcano" then
+				newLand:SetAttribute("IsVolcano", true)
+				newLand:SetAttribute("VolcanoActive", false)
+			elseif specialEffect == "shark" then
+				newLand:SetAttribute("CanHaveShark", true)
+			elseif specialEffect == "kaiju" then
+				newLand:SetAttribute("CanHaveKaiju", true)
+			elseif specialEffect == "boat" then
+				newLand:SetAttribute("CanSpawnBoat", true)
+			elseif specialEffect == "whirlpool" then
+				newLand:SetAttribute("CanHaveWhirlpool", true)
+			end
+
+			print(
+				"🌍 Поставив",
+				landType,
+				"на спавн",
+				placeTileNumber,
+				"→ Q=",
+				q,
+				"R=",
+				r,
+				"Ефект:",
+				specialEffect
+			)
+		else
+			print(
+				"🌍 Поставив",
+				landType,
+				"на спавн",
+				placeTileNumber,
+				"→ Q=",
+				q,
+				"R=",
+				r,
+				"Без ефекту"
+			)
+		end
 	else
 		warn("❌ Не удалось найти Q,R для спавна:", placeTileNumber)
 	end

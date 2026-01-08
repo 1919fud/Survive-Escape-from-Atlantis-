@@ -15,6 +15,43 @@ function FloodPhase.new()
 	self.mapManager = nil
 	self.currentFloodPlayer = nil
 
+	self.globalEffects = {
+		sharks = {
+			count = 0, -- Поточна кількість акул на полі
+			maxCount = 6, -- Максимум: 3 на пляжах + 3 у лісах
+			beachTiles = 0, -- Скільки пляжів з акулою затоплено
+			forestTiles = 0, -- Скільки лісів з акулою затоплено
+			placedOn = {}, -- Де розміщені акули {[coordKey] = true}
+		},
+		kaijus = {
+			count = 0,
+			maxCount = 2, -- Максимум: 3 на пляжах + 2 у лісах
+			beachTiles = 0,
+			forestTiles = 0,
+			placedOn = {},
+		},
+		extraBoats = {
+			count = 0,
+			maxCount = 12, -- Максимум: 1 на пляжах + 3 у лісах
+			beachTiles = 0,
+			forestTiles = 0,
+			placedOn = {},
+		},
+		whirlpools = {
+			count = 0,
+			maxCount = 6, -- Максимум: 2 у лісах + 4 у горах
+			forestTiles = 0,
+			mountainTiles = 0,
+			placedOn = {},
+		},
+		volcanoes = {
+			count = 0,
+			maxCount = 4, -- Тільки в горах
+			mountainTiles = 0,
+			placedOn = {},
+		},
+	}
+
 	return self
 end
 
@@ -403,11 +440,16 @@ function FloodPhase:floodTile(tileInfo)
 		local originalType = tileData.type
 		local originalQ = tileData.q
 		local originalR = tileData.r
+		local specialEffect = tileData.specialEffect or tileData.meshPart:GetAttribute("SpecialEffect")
 
 		print("🌊 Затоплюємо тайл:", originalType, "Q=", originalQ, "R=", originalR)
 
 		-- 2. ПЕРЕМІЩУЄМО ДОСЛІДНИКІВ (вони залишаються на тих же координатах)
 		self:moveExplorersFromTile(originalQ, originalR)
+
+		if specialEffect then
+			self:handleSpecialEffect(specialEffect, originalType, originalQ, originalR, tileData)
+		end
 
 		-- 3. ВИДАЛЯЄМО острівний тайл
 		if tileData.meshPart and tileData.meshPart.Parent then
@@ -459,26 +501,6 @@ function FloodPhase:floodTile(tileInfo)
 
 			-- Видаляємо з landTiles
 			self.mapManager.landTiles[coordKey] = nil
-
-			-- Додаємо/оновлюємо waterTiles
-			--[[if waterTile then
-				self.mapManager.waterTiles[coordKey] = waterTile
-
-				-- Оновлюємо getTileAtPosition
-				--[[self.mapManager:updateTileData(originalQ, originalR, {
-					meshPart = waterTile,
-					type = "Water",
-					q = originalQ,
-					r = originalR,
-					coordKey = coordKey,
-					isWater = true,
-					isLand = false,
-					tileType = "Water",
-					wasFlooded = true,
-					originalType = originalType,
-				})
-			end]]
-			--
 		end
 
 		-- 7. Сповіщаємо всіх гравців
@@ -499,6 +521,945 @@ function FloodPhase:floodTile(tileInfo)
 			"✅ Тайл затоплено. Дослідники залишились на координатах (тепер вода)"
 		)
 	end
+end
+
+function FloodPhase:handleSpecialEffect(effectType, tileType, q, r, tileData)
+	print("🎭 Активуємо спецефект:", effectType, "тип:", tileType, "на Q=", q, "R=", r)
+
+	local coordKey = self.mapManager:getCoordKey(q, r)
+
+	if effectType == "shark" then
+		self:spawnShark(tileType, q, r, coordKey)
+	elseif effectType == "kaiju" then
+		self:spawnKaiju(tileType, q, r, coordKey)
+	elseif effectType == "boat" then
+		self:spawnExtraBoat(tileType, q, r, coordKey)
+	elseif effectType == "whirlpool" then
+		self:createWhirlpool(tileType, q, r, coordKey)
+	elseif effectType == "volcano" then
+		self:activateVolcano(tileType, q, r, coordKey)
+	end
+
+	-- Оновлюємо статистику
+	self:updateEffectStatistics(effectType, tileType, coordKey)
+end
+
+function FloodPhase:updateEffectStatistics(effectType, tileType, coordKey)
+	print(
+		"📊 Оновлено статистику:",
+		effectType,
+		"на",
+		tileType,
+		"координата:",
+		coordKey
+	)
+
+	-- Виводимо загальну статистику
+	print("=== ГЛОБАЛЬНА СТАТИСТИКА СПЕЦЕФЕКТІВ ===")
+	for effectName, data in pairs(self.globalEffects) do
+		local totalTiles = 0
+		for _, count in pairs(data) do
+			if type(count) == "number" and string.find(_, "Tiles") then
+				totalTiles = totalTiles + count
+			end
+		end
+
+		print(
+			effectName
+				.. ": "
+				.. data.count
+				.. "/"
+				.. data.maxCount
+				.. " (розміщено на "
+				.. totalTiles
+				.. " плитках)"
+		)
+	end
+end
+
+function FloodPhase:countSharksOnBoard()
+	-- Рахуємо кількість акул на полі
+	local count = 0
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:GetAttribute("IsShark") then
+			count = count + 1
+		end
+	end
+	return count
+end
+
+function FloodPhase:spawnShark(tileType, q, r, coordKey)
+	local sharkData = self.globalEffects.sharks
+
+	-- Оновлюємо лічильник для типу плитки
+	if tileType == "Beach" then
+		sharkData.beachTiles = sharkData.beachTiles + 1
+	elseif tileType == "Forest" then
+		sharkData.forestTiles = sharkData.forestTiles + 1
+	end
+
+	if sharkData.count < sharkData.maxCount then
+		-- Створюємо нову акулу
+		print("🦈 Створюємо нову акулу на Q=", q, "R=", r)
+		sharkData.count = sharkData.count + 1
+		sharkData.placedOn[coordKey] = true
+
+		-- Тут код для створення акули
+		self:createSharkVisual(q, r)
+	else
+		-- Переміщаємо існуючу акулу
+		print("🦈 Переміщаємо існуючу акулу на Q=", q, "R=", r)
+
+		-- Знаходимо першу акулу для переміщення
+		local oldCoordKey = next(sharkData.placedOn)
+		if oldCoordKey then
+			-- Видаляємо зі старого місця
+			sharkData.placedOn[oldCoordKey] = nil
+
+			-- Додаємо на нове місце
+			sharkData.placedOn[coordKey] = true
+
+			-- Переміщуємо візуал акули
+			self:moveSharkToPosition(oldCoordKey, q, r)
+		end
+	end
+end
+
+function FloodPhase:createSharkVisual(q, r)
+	print("🦈 Створення візуалу акули на Q=", q, "R=", r)
+
+	-- Знаходимо шаблон акули
+	local ReplicatedStorage = game:GetService("ReplicatedStorage")
+	local sharkTemplate = ReplicatedStorage:FindFirstChild("Shark")
+
+	if not sharkTemplate then
+		warn("❌ Не знайдено шаблон Shark в ReplicatedStorage")
+		return nil
+	end
+
+	-- Знаходимо водний тайл для позиціонування
+	local map = workspace:WaitForChild("Map")
+	local targetTile = nil
+
+	for _, obj in ipairs(map:GetDescendants()) do
+		if obj:IsA("MeshPart") then
+			local tileQ = obj:GetAttribute("Q") or obj:GetAttribute("q")
+			local tileR = obj:GetAttribute("R") or obj:GetAttribute("r")
+			local isWater = obj:GetAttribute("IsWater") or obj:GetAttribute("Placeboat") == true
+
+			if tileQ == q and tileR == r and isWater then
+				targetTile = obj
+				break
+			end
+		end
+	end
+
+	if not targetTile then
+		warn("❌ Не знайдено водний тайл для розміщення акули: Q=", q, "R=", r)
+		return nil
+	end
+
+	-- Створюємо акулу
+	local shark = sharkTemplate:Clone()
+	shark.Name = "Shark_" .. q .. "_" .. r
+
+	-- Налаштовуємо PrimaryPart
+	local primaryPart = shark.PrimaryPart
+	if not primaryPart then
+		for _, part in ipairs(shark:GetDescendants()) do
+			if part:IsA("BasePart") then
+				primaryPart = part
+				shark.PrimaryPart = primaryPart
+				break
+			end
+		end
+	end
+
+	if not shark.PrimaryPart then
+		warn("❌ У моделі акули немає PrimaryPart")
+		shark:Destroy()
+		return nil
+	end
+
+	-- Позиціонуємо над водою
+	local tileTopY = targetTile.Position.Y + targetTile.Size.Y / 2
+	local sharkBottomY = primaryPart.Position.Y - primaryPart.Size.Y / 2
+	local yOffset = tileTopY - sharkBottomY + 0.5
+
+	-- Додаємо анімацію плавання
+	local rotatedCFrame = (targetTile.CFrame + Vector3.new(0, yOffset, 0))
+		* CFrame.Angles(math.rad(math.random(0, 180)), 0, 0)
+
+	shark:PivotTo(rotatedCFrame)
+
+	-- Додаємо атрибути
+	shark:SetAttribute("IsShark", true)
+	shark:SetAttribute("Q", q)
+	shark:SetAttribute("R", r)
+	shark:SetAttribute("SharkId", self.globalEffects.sharks.count)
+
+	-- Поміщаємо в workspace
+	shark.Parent = workspace
+
+	-- Додаємо ефект появи
+	self:createSpecialEffectAppearance(shark, Color3.fromRGB(0, 150, 255))
+
+	print("✅ Створено акулу на Q=", q, "R=", r)
+	return shark
+end
+
+function FloodPhase:moveSharkToPosition(oldCoordKey, newQ, newR)
+	print("🦈 Переміщення акули з", oldCoordKey, "на Q=", newQ, "R=", newR)
+
+	-- Знаходимо стару акулу за координатами
+	local oldQ, oldR = oldCoordKey:match("([^,]+),([^,]+)")
+	oldQ = tonumber(oldQ)
+	oldR = tonumber(oldR)
+
+	-- Шукаємо акулу з старими координатами
+	local shark = nil
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:IsA("Model") and obj:GetAttribute("IsShark") then
+			local objQ = obj:GetAttribute("Q")
+			local objR = obj:GetAttribute("R")
+			if objQ == oldQ and objR == oldR then
+				shark = obj
+				break
+			end
+		end
+	end
+
+	if not shark then
+		warn("❌ Не знайдено акулу для переміщення на", oldCoordKey)
+		-- Створюємо нову
+		self:createSharkVisual(newQ, newR)
+		return
+	end
+
+	-- Знаходимо новий водний тайл
+	local map = workspace:WaitForChild("Map")
+	local targetTile = nil
+
+	for _, obj in ipairs(map:GetDescendants()) do
+		if obj:IsA("MeshPart") then
+			local tileQ = obj:GetAttribute("Q") or obj:GetAttribute("q")
+			local tileR = obj:GetAttribute("R") or obj:GetAttribute("r")
+			local isWater = obj:GetAttribute("IsWater") or obj:GetAttribute("Placeboat") == true
+
+			if tileQ == newQ and tileR == newR and isWater then
+				targetTile = obj
+				break
+			end
+		end
+	end
+
+	if not targetTile then
+		warn("❌ Не знайдено новий водний тайл для акули")
+		return
+	end
+
+	-- Оновлюємо позицію
+	local primaryPart = shark.PrimaryPart
+	if primaryPart then
+		local tileTopY = targetTile.Position.Y + targetTile.Size.Y / 2
+		local sharkBottomY = primaryPart.Position.Y - primaryPart.Size.Y / 2
+		local yOffset = tileTopY - sharkBottomY + 0.5
+
+		local newCFrame = (targetTile.CFrame + Vector3.new(0, yOffset, 0))
+			* CFrame.Angles(0, math.rad(math.random(0, 360)), 0)
+
+		shark:PivotTo(newCFrame)
+	end
+
+	-- Оновлюємо атрибути
+	shark:SetAttribute("Q", newQ)
+	shark:SetAttribute("R", newR)
+	shark.Name = "Shark_" .. newQ .. "_" .. newR
+
+	-- Ефект переміщення
+	self:createMovementEffect(shark)
+
+	print("✅ Переміщено акулу на Q=", newQ, "R=", newR)
+end
+
+function FloodPhase:createMovementEffect(model)
+	-- Ефект переміщення
+	if not model or not model:IsA("Model") then
+		return
+	end
+
+	local trail = Instance.new("Trail")
+	trail.Color = ColorSequence.new(Color3.fromRGB(255, 255, 0))
+	trail.Lifetime = 0.5
+	trail.Transparency = NumberSequence.new(0.5)
+	trail.WidthScale = NumberSequence.new(0.5)
+
+	local attachment0 = Instance.new("Attachment")
+	local attachment1 = Instance.new("Attachment")
+
+	attachment0.Position = Vector3.new(0, 1, 0)
+	attachment1.Position = Vector3.new(0, -1, 0)
+
+	attachment0.Parent = model.PrimaryPart
+	attachment1.Parent = model.PrimaryPart
+
+	trail.Attachment0 = attachment0
+	trail.Attachment1 = attachment1
+	trail.Parent = model.PrimaryPart
+
+	game:GetService("Debris"):AddItem(trail, 1)
+	game:GetService("Debris"):AddItem(attachment0, 1)
+	game:GetService("Debris"):AddItem(attachment1, 1)
+end
+
+function FloodPhase:createSpecialEffectAppearance(model, color)
+	-- Ефект появи для спеціальних об'єктів
+	if not model or not model:IsA("Model") then
+		return
+	end
+
+	local primaryPart = model.PrimaryPart
+	if not primaryPart then
+		return
+	end
+
+	-- Подсветка
+	local highlight = Instance.new("Highlight")
+	highlight.FillColor = color
+	highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+	highlight.FillTransparency = 0.6
+	highlight.OutlineTransparency = 0
+	highlight.Parent = model
+
+	-- Убираем подсветку через 2 секунды
+	game:GetService("Debris"):AddItem(highlight, 2)
+
+	-- Эффект масштабирования
+	local originalSize = primaryPart.Size
+	primaryPart.Size = Vector3.new(0.1, 0.1, 0.1)
+
+	local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
+	local tween = game:GetService("TweenService"):Create(primaryPart, tweenInfo, { Size = originalSize })
+
+	tween:Play()
+end
+
+function FloodPhase:spawnKaiju(tileType, q, r, coordKey)
+	local kaijuData = self.globalEffects.kaijus
+
+	-- Оновлюємо лічильник для типу плитки
+	if tileType == "Beach" then
+		kaijuData.beachTiles = kaijuData.beachTiles + 1
+	elseif tileType == "Forest" then
+		kaijuData.forestTiles = kaijuData.forestTiles + 1
+	end
+
+	if kaijuData.count < kaijuData.maxCount then
+		-- Створюємо нового кайджю
+		print("👹 Створюємо нового кайджю на Q=", q, "R=", r)
+		kaijuData.count = kaijuData.count + 1
+		kaijuData.placedOn[coordKey] = true
+
+		-- Тут код для створення кайджю
+		self:createKaijuVisual(q, r)
+	else
+		-- Переміщаємо існуючого кайджю
+		print("👹 Переміщаємо існуючого кайджю на Q=", q, "R=", r)
+
+		-- Знаходимо першого кайджю для переміщення
+		local oldCoordKey = next(kaijuData.placedOn)
+		if oldCoordKey then
+			-- Видаляємо зі старого місця
+			kaijuData.placedOn[oldCoordKey] = nil
+
+			-- Додаємо на нове місце
+			kaijuData.placedOn[coordKey] = true
+
+			-- Переміщуємо візуал кайджю
+			self:moveKaijuToPosition(oldCoordKey, q, r)
+		end
+	end
+end
+
+function FloodPhase:createKaijuVisual(q, r)
+	print("👹 Створення візуалу кайджю на Q=", q, "R=", r)
+
+	-- Знаходимо шаблон кайджю
+	local ReplicatedStorage = game:GetService("ReplicatedStorage")
+	local kaijuTemplate = ReplicatedStorage:FindFirstChild("Kaiju")
+
+	if not kaijuTemplate then
+		warn("❌ Не знайдено шаблон Kaiju в ReplicatedStorage")
+		return nil
+	end
+
+	-- Знаходимо водний тайл
+	local map = workspace:WaitForChild("Map")
+	local targetTile = nil
+
+	for _, obj in ipairs(map:GetDescendants()) do
+		if obj:IsA("MeshPart") then
+			local tileQ = obj:GetAttribute("Q") or obj:GetAttribute("q")
+			local tileR = obj:GetAttribute("R") or obj:GetAttribute("r")
+			local isWater = obj:GetAttribute("IsWater") or obj:GetAttribute("Placeboat") == true
+
+			if tileQ == q and tileR == r and isWater then
+				targetTile = obj
+				break
+			end
+		end
+	end
+
+	if not targetTile then
+		warn("❌ Не знайдено водний тайл для розміщення кайджю")
+		return nil
+	end
+
+	-- Створюємо кайджю
+	local kaiju = kaijuTemplate:Clone()
+	kaiju.Name = "Kaiju_" .. q .. "_" .. r
+
+	-- Налаштовуємо PrimaryPart
+	local primaryPart = kaiju.PrimaryPart
+	if not primaryPart then
+		for _, part in ipairs(kaiju:GetDescendants()) do
+			if part:IsA("BasePart") then
+				primaryPart = part
+				kaiju.PrimaryPart = primaryPart
+				break
+			end
+		end
+	end
+
+	if not kaiju.PrimaryPart then
+		warn("❌ У моделі кайджю немає PrimaryPart")
+		kaiju:Destroy()
+		return nil
+	end
+
+	-- Позиціонуємо (кайджю може бути вище за акулу)
+	local tileTopY = targetTile.Position.Y + targetTile.Size.Y / 2
+	local kaijuBottomY = primaryPart.Position.Y - primaryPart.Size.Y / 2
+	local yOffset = tileTopY - kaijuBottomY + 1.0 -- Вище ніж акула
+
+	local rotatedCFrame = (targetTile.CFrame + Vector3.new(0, yOffset, 0))
+		* CFrame.Angles(math.rad(math.random(0, 180)), 0, 0)
+
+	kaiju:PivotTo(rotatedCFrame)
+
+	-- Додаємо атрибути
+	kaiju:SetAttribute("IsKaiju", true)
+	kaiju:SetAttribute("Q", q)
+	kaiju:SetAttribute("R", r)
+	kaiju:SetAttribute("KaijuId", self.globalEffects.kaijus.count)
+
+	-- Поміщаємо в workspace
+	kaiju.Parent = workspace
+
+	-- Ефект появи
+	self:createSpecialEffectAppearance(kaiju, Color3.fromRGB(255, 100, 0))
+
+	print("✅ Створено кайджю на Q=", q, "R=", r)
+	return kaiju
+end
+
+function FloodPhase:moveKaijuToPosition(oldCoordKey, newQ, newR)
+	print("👹 Переміщення кайджю з", oldCoordKey, "на Q=", newQ, "R=", newR)
+
+	-- Аналогічно до moveSharkToPosition
+	local oldQ, oldR = oldCoordKey:match("([^,]+),([^,]+)")
+	oldQ = tonumber(oldQ)
+	oldR = tonumber(oldR)
+
+	local kaiju = nil
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:IsA("Model") and obj:GetAttribute("IsKaiju") then
+			local objQ = obj:GetAttribute("Q")
+			local objR = obj:GetAttribute("R")
+			if objQ == oldQ and objR == oldR then
+				kaiju = obj
+				break
+			end
+		end
+	end
+
+	if not kaiju then
+		warn("❌ Не знайдено кайджю для переміщення")
+		self:createKaijuVisual(newQ, newR)
+		return
+	end
+
+	-- Знаходимо новий тайл
+	local map = workspace:WaitForChild("Map")
+	local targetTile = nil
+
+	for _, obj in ipairs(map:GetDescendants()) do
+		if obj:IsA("MeshPart") then
+			local tileQ = obj:GetAttribute("Q") or obj:GetAttribute("q")
+			local tileR = obj:GetAttribute("R") or obj:GetAttribute("r")
+			local isWater = obj:GetAttribute("IsWater") or obj:GetAttribute("Placeboat") == true
+
+			if tileQ == newQ and tileR == newR and isWater then
+				targetTile = obj
+				break
+			end
+		end
+	end
+
+	if not targetTile then
+		warn("❌ Не знайдено новий водний тайл для кайджю")
+		return
+	end
+
+	-- Оновлюємо позицію
+	local primaryPart = kaiju.PrimaryPart
+	if primaryPart then
+		local tileTopY = targetTile.Position.Y + targetTile.Size.Y / 2
+		local kaijuBottomY = primaryPart.Position.Y - primaryPart.Size.Y / 2
+		local yOffset = tileTopY - kaijuBottomY + 1.0
+
+		local newCFrame = (targetTile.CFrame + Vector3.new(0, yOffset, 0))
+			* CFrame.Angles(0, math.rad(math.random(0, 360)), 0)
+
+		kaiju:PivotTo(newCFrame)
+	end
+
+	-- Оновлюємо атрибути
+	kaiju:SetAttribute("Q", newQ)
+	kaiju:SetAttribute("R", newR)
+	kaiju.Name = "Kaiju_" .. newQ .. "_" .. newR
+
+	-- Ефект переміщення
+	self:createMovementEffect(kaiju)
+
+	print("✅ Переміщено кайджю на Q=", newQ, "R=", newR)
+end
+
+function FloodPhase:spawnExtraBoat(tileType, q, r, coordKey)
+	local boatData = self.globalEffects.extraBoats
+
+	-- Оновлюємо лічильник для типу плитки
+	if tileType == "Beach" then
+		boatData.beachTiles = boatData.beachTiles + 1
+	elseif tileType == "Forest" then
+		boatData.forestTiles = boatData.forestTiles + 1
+	end
+
+	if boatData.count < boatData.maxCount then
+		-- Створюємо новий човен
+		print("🚤 Створюємо додатковий човен на Q=", q, "R=", r)
+		boatData.count = boatData.count + 1
+		boatData.placedOn[coordKey] = true
+
+		-- Тут код для створення човна
+		self:createExtraBoatVisual(q, r)
+	else
+		print("🚤 Усі додаткові човни вже розміщені (4 шт)")
+		-- Можна додати повідомлення гравцю
+	end
+end
+
+function FloodPhase:createWhirlpool(tileType, q, r, coordKey)
+	local whirlpoolData = self.globalEffects.whirlpools
+
+	-- Оновлюємо лічильник для типу плитки
+	if tileType == "Forest" then
+		whirlpoolData.forestTiles = whirlpoolData.forestTiles + 1
+	elseif tileType == "Mountain" then
+		whirlpoolData.mountainTiles = whirlpoolData.mountainTiles + 1
+	end
+
+	-- Створюємо водоверть
+	print("🌀 Створюємо водоверть на Q=", q, "R=", r)
+	whirlpoolData.count = whirlpoolData.count + 1
+	whirlpoolData.placedOn[coordKey] = true
+
+	-- Прибираємо всі елементи на цій та сусідніх водних ділянках
+	self:removeElementsFromWhirlpoolArea(q, r)
+
+	-- Тут код для створення візуалу водоверті
+	self:createWhirlpoolVisual(q, r)
+end
+
+function FloodPhase:removeElementsFromWhirlpoolArea(q, r)
+	print("🗑️ Прибирання елементів у зоні водоверті Q=", q, "R=", r)
+
+	-- Видаляємо всі елементи на цій ділянці
+	self:removeAllElementsFromTile(q, r)
+
+	-- Знаходимо сусідні водні ділянки
+	local directions = {
+		{ 1, 0 },
+		{ 1, -1 },
+		{ 0, -1 },
+		{ -1, 0 },
+		{ -1, 1 },
+		{ 0, 1 },
+	}
+
+	for _, dir in ipairs(directions) do
+		local nq = q + dir[1]
+		local nr = r + dir[2]
+
+		-- Перевіряємо, чи це водна ділянка
+		local tile = self.mapManager:getTileAtPosition(nq, nr)
+		if tile and tile.isWater then
+			-- Видаляємо елементи на сусідній водній ділянці
+			self:removeAllElementsFromTile(nq, nr)
+		end
+	end
+end
+
+function FloodPhase:createSimpleWhirlpoolEffect(q, r)
+	print("🌀 Створення простого ефекту водоверті на Q=", q, "R=", r)
+
+	-- Знаходимо тайл
+	local map = workspace:WaitForChild("Map")
+	local targetTile = nil
+
+	for _, obj in ipairs(map:GetDescendants()) do
+		if obj:IsA("MeshPart") then
+			local tileQ = obj:GetAttribute("Q") or obj:GetAttribute("q")
+			local tileR = obj:GetAttribute("R") or obj:GetAttribute("r")
+			local isWater = obj:GetAttribute("IsWater") or obj:GetAttribute("Placeboat") == true
+
+			if tileQ == q and tileR == r and isWater then
+				targetTile = obj
+				break
+			end
+		end
+	end
+
+	if not targetTile then
+		return nil
+	end
+
+	-- Створюємо ефект за допомогою ParticleEmitter
+	local particleEmitter = Instance.new("ParticleEmitter")
+	particleEmitter.Name = "WhirlpoolEffect"
+	particleEmitter.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 100, 200)),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(0, 150, 255)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(100, 200, 255)),
+	})
+
+	particleEmitter.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.5),
+		NumberSequenceKeypoint.new(0.5, 1.5),
+		NumberSequenceKeypoint.new(1, 0.5),
+	})
+
+	particleEmitter.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.3),
+		NumberSequenceKeypoint.new(0.5, 0.1),
+		NumberSequenceKeypoint.new(1, 0.5),
+	})
+
+	particleEmitter.Lifetime = NumberRange.new(2, 3)
+	particleEmitter.Rate = 100
+	particleEmitter.Speed = NumberRange.new(2, 5)
+	particleEmitter.VelocitySpread = 180
+	particleEmitter.Rotation = NumberRange.new(0, 360)
+	particleEmitter.RotSpeed = NumberRange.new(-50, 50)
+
+	-- Створюємо контейнер для частинок
+	local container = Instance.new("Part")
+	container.Name = "Whirlpool_" .. q .. "_" .. r
+	container.Size = Vector3.new(5, 0.1, 5)
+	container.Position = targetTile.Position + Vector3.new(0, 0.5, 0)
+	container.Anchored = true
+	container.CanCollide = false
+	container.Transparency = 1
+
+	particleEmitter.Parent = container
+	container.Parent = workspace
+
+	-- Додаємо атрибути
+	container:SetAttribute("IsWhirlpool", true)
+	container:SetAttribute("Q", q)
+	container:SetAttribute("R", r)
+
+	-- Додаємо обертання
+	coroutine.wrap(function()
+		while container and container.Parent do
+			container.CFrame = container.CFrame * CFrame.Angles(0, math.rad(1), 0)
+			wait(0.01)
+		end
+	end)()
+
+	print("✅ Створено простий ефект водоверті на Q=", q, "R=", r)
+	return container
+end
+
+function FloodPhase:createWhirlpoolVisual(q, r)
+	print("🌀 Створення візуалу водоверті на Q=", q, "R=", r)
+
+	-- Шукаємо шаблон водоверті
+	local ReplicatedStorage = game:GetService("ReplicatedStorage")
+	local whirlpoolTemplate = ReplicatedStorage:FindFirstChild("Whirlpool")
+
+	if not whirlpoolTemplate then
+		warn("❌ Не знайдено шаблон Whirlpool в ReplicatedStorage")
+		-- Якщо немає шаблону, створимо простіший ефект
+		return self:createSimpleWhirlpoolEffect(q, r)
+	end
+
+	-- Знаходимо водний тайл
+	local map = workspace:WaitForChild("Map")
+	local targetTile = nil
+
+	for _, obj in ipairs(map:GetDescendants()) do
+		if obj:IsA("MeshPart") then
+			local tileQ = obj:GetAttribute("Q") or obj:GetAttribute("q")
+			local tileR = obj:GetAttribute("R") or obj:GetAttribute("r")
+			local isWater = obj:GetAttribute("IsWater") or obj:GetAttribute("Placeboat") == true
+
+			if tileQ == q and tileR == r and isWater then
+				targetTile = obj
+				break
+			end
+		end
+	end
+
+	if not targetTile then
+		warn("❌ Не знайдено водний тайл для водоверті")
+		return nil
+	end
+
+	-- Створюємо водоверть
+	local whirlpool = whirlpoolTemplate:Clone()
+	whirlpool.Name = "Whirlpool_" .. q .. "_" .. r
+
+	-- Налаштовуємо PrimaryPart
+	local primaryPart = whirlpool.PrimaryPart
+	if not primaryPart then
+		for _, part in ipairs(whirlpool:GetDescendants()) do
+			if part:IsA("BasePart") then
+				primaryPart = part
+				whirlpool.PrimaryPart = primaryPart
+				break
+			end
+		end
+	end
+
+	if not whirlpool.PrimaryPart then
+		warn("❌ У моделі водоверті немає PrimaryPart")
+		whirlpool:Destroy()
+		return self:createSimpleWhirlpoolEffect(q, r)
+	end
+
+	-- Позиціонуємо на воді
+	local tileTopY = targetTile.Position.Y + targetTile.Size.Y / 2
+	local whirlpoolBottomY = primaryPart.Position.Y - primaryPart.Size.Y / 2
+	local yOffset = tileTopY - whirlpoolBottomY + 0.1 -- Трохи над водою
+
+	local baseCFrame = targetTile.CFrame + Vector3.new(0, yOffset, 0)
+	whirlpool:PivotTo(baseCFrame)
+
+	-- Додаємо атрибути
+	whirlpool:SetAttribute("IsWhirlpool", true)
+	whirlpool:SetAttribute("Q", q)
+	whirlpool:SetAttribute("R", r)
+	whirlpool:SetAttribute("WhirlpoolId", self.globalEffects.whirlpools.count)
+
+	-- Поміщаємо в workspace
+	whirlpool.Parent = workspace
+
+	-- Ефект появи
+	self:createSpecialEffectAppearance(whirlpool, Color3.fromRGB(0, 100, 200))
+
+	print("✅ Створено водоверть на Q=", q, "R=", r)
+	return whirlpool
+end
+
+function FloodPhase:activateVolcano(tileType, q, r, coordKey)
+	local volcanoData = self.globalEffects.volcanoes
+
+	-- Оновлюємо лічильник для типу плитки
+	volcanoData.mountainTiles = volcanoData.mountainTiles + 1
+
+	-- Активуємо вулкан
+	print("🌋 Активуємо вулкан на Q=", q, "R=", r)
+	volcanoData.count = volcanoData.count + 1
+	volcanoData.placedOn[coordKey] = true
+
+	-- Прибираємо всі елементи на цій ділянці
+	self:removeAllElementsFromTile(q, r)
+
+	-- Блокуємо ділянку
+	self:blockTileForMovement(q, r, "volcano")
+
+	-- Перевіряємо, чи не закінчилася гра
+	if volcanoData.count >= 3 then
+		self:endGameDueToVolcanoes()
+	end
+end
+
+function FloodPhase:removeAllElementsFromTile(q, r)
+	print("🗑️ Прибирання всіх елементів з Q=", q, "R=", r)
+
+	-- Дослідники
+	local explorersRemoved = 0
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:GetAttribute("IsExplorer") then
+			local objQ = obj:GetAttribute("Q")
+			local objR = obj:GetAttribute("R")
+			if objQ == q and objR == r then
+				-- Повідомляємо гравців
+				self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
+					type = "explorer_removed_by_effect",
+					explorerId = obj:GetAttribute("ExplorerId"),
+					playerName = obj:GetAttribute("Player"),
+					q = q,
+					r = r,
+					reason = "whirlpool",
+				})
+
+				obj:Destroy()
+				explorersRemoved = explorersRemoved + 1
+			end
+		end
+	end
+
+	if explorersRemoved > 0 then
+		print("👤 Видалено дослідників:", explorersRemoved)
+	end
+
+	-- Істоти (акули, кайджю)
+	local creatures = { "IsShark", "IsKaiju" }
+	for _, creatureType in ipairs(creatures) do
+		for _, obj in ipairs(workspace:GetChildren()) do
+			if obj:GetAttribute(creatureType) then
+				local objQ = obj:GetAttribute("Q")
+				local objR = obj:GetAttribute("R")
+				if objQ == q and objR == r then
+					obj:Destroy()
+					print("🗑️ Видалено істоту:", creatureType)
+				end
+			end
+		end
+	end
+
+	-- Плоти (звичайні човни)
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:GetAttribute("IsBoat") and not obj:GetAttribute("IsExtraBoat") then
+			local objQ = obj:GetAttribute("Q")
+			local objR = obj:GetAttribute("R")
+			if objQ == q and objR == r then
+				-- Переносимо дослідників з човна
+				self:moveExplorersFromBoat(obj)
+				obj:Destroy()
+				print("🚤 Видалено човен через водоверть")
+			end
+		end
+	end
+end
+
+function FloodPhase:moveExplorersFromBoat(boat)
+	local boatId = boat:GetAttribute("BoatId")
+	if not boatId then
+		return
+	end
+
+	local boatQ = boat:GetAttribute("Q")
+	local boatR = boat:GetAttribute("R")
+
+	print("👤 Переміщення дослідників з човна #", boatId)
+
+	-- Знаходимо найближчий вільний водний тайл
+	local nearestTile = self:findNearestAvailableWaterTile(boatQ, boatR)
+
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:GetAttribute("IsExplorer") and obj:GetAttribute("BoatId") == boatId then
+			-- Оновлюємо координати дослідника
+			obj:SetAttribute("Q", nearestTile.q)
+			obj:SetAttribute("R", nearestTile.r)
+			obj:SetAttribute("IsOnBoat", false)
+			obj:SetAttribute("BoatId", nil)
+			obj:SetAttribute("BoatPlaceIndex", nil)
+
+			-- Оновлюємо позицію
+			self:positionExplorerOnWater(obj, nearestTile.q, nearestTile.r)
+
+			print("👤 Дослідник переміщений на Q=", nearestTile.q, "R=", nearestTile.r)
+		end
+	end
+end
+
+function FloodPhase:positionExplorerOnWater(explorer, q, r)
+	-- Проста позиціонування дослідника на воді
+	local map = workspace:WaitForChild("Map")
+
+	for _, obj in ipairs(map:GetDescendants()) do
+		if obj:IsA("MeshPart") then
+			local tileQ = obj:GetAttribute("Q") or obj:GetAttribute("q")
+			local tileR = obj:GetAttribute("R") or obj:GetAttribute("r")
+
+			if tileQ == q and tileR == r then
+				local primaryPart = explorer.PrimaryPart
+				if primaryPart then
+					local yOffset = 4.38 -- Базова висота для води
+					local angle = math.random(0, 360)
+					local radius = 1.5
+					local offsetX = math.cos(math.rad(angle)) * radius
+					local offsetZ = math.sin(math.rad(angle)) * radius
+
+					local newPosition = Vector3.new(obj.Position.X + offsetX, yOffset, obj.Position.Z + offsetZ)
+
+					local rotatedCFrame = CFrame.new(newPosition) * CFrame.Angles(0, math.rad(90 + angle), 0)
+
+					explorer:SetPrimaryPartCFrame(rotatedCFrame)
+				end
+				break
+			end
+		end
+	end
+end
+
+function FloodPhase:findNearestAvailableWaterTile(fromQ, fromR)
+	-- Спрощена версія - шукаємо будь-який водний тайл
+	local map = workspace:WaitForChild("Map")
+
+	for _, obj in ipairs(map:GetDescendants()) do
+		if obj:IsA("MeshPart") then
+			local tileQ = obj:GetAttribute("Q") or obj:GetAttribute("q")
+			local tileR = obj:GetAttribute("R") or obj:GetAttribute("r")
+			local isWater = obj:GetAttribute("IsWater") or obj:GetAttribute("Placeboat") == true
+
+			if isWater then
+				-- Перевіряємо, чи немає на ньому вже водоверті
+				local hasWhirlpool = false
+				for _, whirlpool in ipairs(workspace:GetChildren()) do
+					if whirlpool:GetAttribute("IsWhirlpool") then
+						local wq = whirlpool:GetAttribute("Q")
+						local wr = whirlpool:GetAttribute("R")
+						if wq == tileQ and wr == tileR then
+							hasWhirlpool = true
+							break
+						end
+					end
+				end
+
+				if not hasWhirlpool then
+					return { q = tileQ, r = tileR }
+				end
+			end
+		end
+	end
+
+	-- Якщо не знайшли, повертаємо оригінальні координати
+	return { q = fromQ, r = fromR }
+end
+
+function FloodPhase:endGameDueToVolcanoes()
+	print("🔥 ГРА ЗАКІНЧЕНА! Активовано 3 вулкани!")
+	-- Тут код для завершення гри
+	self.networkManager:getGameStartEvent():FireAllClients({
+		phase = "game_over",
+		message = "🔥 ГРА ЗАКІНЧЕНА! Активовано 3 вулкани!",
+		reason = "volcanoes",
+	})
 end
 
 function FloodPhase:createFloodEffect(tile)
