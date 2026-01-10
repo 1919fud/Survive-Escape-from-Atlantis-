@@ -73,9 +73,10 @@ function MapManager:generateLandTiles()
 
 	-- Список всех нужных суш
 	local landTypes = {}
-	for _ = 1, 16 do
+	--[[for _ = 1, 16 do
 		table.insert(landTypes, "Beach")
-	end
+	end]]
+	--
 	for _ = 1, 16 do
 		table.insert(landTypes, "Forest")
 	end
@@ -174,16 +175,6 @@ function MapManager:generateLandTiles()
 		end
 	end
 
-	-- Виводимо статистику розподілу властивостей
-	print("📊 Статистика розподілу властивостей плиток:")
-	for landType, properties in pairs(propertyCounters) do
-		print("  " .. landType .. ":")
-		for property, count in pairs(properties) do
-			local maxCount = specialProperties[landType] and specialProperties[landType][property] or 0
-			print("    " .. property .. ": " .. count .. "/" .. maxCount)
-		end
-	end
-
 	return self.landTiles
 end
 
@@ -265,19 +256,6 @@ function MapManager:createLandTile(landType, spawnTile, placeTileNumber, special
 			elseif specialEffect == "whirlpool" then
 				newLand:SetAttribute("CanHaveWhirlpool", true)
 			end
-
-			print(
-				"🌍 Поставив",
-				landType,
-				"на спавн",
-				placeTileNumber,
-				"→ Q=",
-				q,
-				"R=",
-				r,
-				"Ефект:",
-				specialEffect
-			)
 		else
 			print(
 				"🌍 Поставив",

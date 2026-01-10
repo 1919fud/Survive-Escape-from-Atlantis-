@@ -1016,9 +1016,9 @@ function FloodPhase:moveKaijuToPosition(oldCoordKey, newQ, newR)
 	if primaryPart then
 		local tileTopY = targetTile.Position.Y + targetTile.Size.Y / 2
 		local kaijuBottomY = primaryPart.Position.Y - primaryPart.Size.Y / 2
-		local yOffset = tileTopY - kaijuBottomY + 1.0
+		local yOffset = tileTopY - kaijuBottomY
 
-		local newCFrame = (targetTile.CFrame + Vector3.new(0, yOffset, 0)) * CFrame.Angles(0, math.rad(360), 0)
+		local newCFrame = (targetTile.CFrame + Vector3.new(0, yOffset, 0)) * CFrame.Angles(math.rad(180), 0, 0)
 
 		kaiju:PivotTo(newCFrame)
 	end
@@ -1081,18 +1081,32 @@ function FloodPhase:createWhirlpool(tileType, q, r, coordKey)
 	whirlpoolData.count = whirlpoolData.count + 1
 	whirlpoolData.placedOn[coordKey] = true
 
-	-- Прибираємо всі елементи на цій та сусідніх водних ділянках
-	self:removeElementsFromWhirlpoolArea(q, r)
+	-- ВИПРАВЛЕННЯ: Прибираємо всі елементи на цій та сусідніх водних ділянках
+	local totalRemoved = self:removeElementsFromWhirlpoolArea(q, r)
 
-	-- Тут код для створення візуалу водоверті
+	-- Створюємо візуал водоверті
 	self:createWhirlpoolVisual(q, r)
+
+	-- Повідомляємо всім гравцям
+	self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
+		type = "whirlpool_created",
+		q = q,
+		r = r,
+		message = "🌀 Створено водоверть!",
+		removedElements = totalRemoved,
+	})
+
+	return totalRemoved
 end
 
 function FloodPhase:removeElementsFromWhirlpoolArea(q, r)
-	print("🗑️ Прибирання елементів у зоні водоверті Q=", q, "R=", r)
+	print("🌀 Прибирання елементів у зоні водоверті Q=", q, "R=", r)
 
-	-- Видаляємо всі елементи на цій ділянці
-	self:removeAllElementsFromTile(q, r)
+	-- Створюємо список координат для очищення
+	local tilesToClear = {}
+
+	-- Додаємо основну ділянку
+	table.insert(tilesToClear, { q = q, r = r })
 
 	-- Знаходимо сусідні водні ділянки
 	local directions = {
@@ -1111,10 +1125,263 @@ function FloodPhase:removeElementsFromWhirlpoolArea(q, r)
 		-- Перевіряємо, чи це водна ділянка
 		local tile = self.mapManager:getTileAtPosition(nq, nr)
 		if tile and tile.isWater then
-			-- Видаляємо елементи на сусідній водній ділянці
-			self:removeAllElementsFromTile(nq, nr)
+			table.insert(tilesToClear, { q = nq, r = nr })
+			print(
+				"🌀 Додано сусідню водну ділянку для очищення: Q=",
+				nq,
+				"R=",
+				nr
+			)
 		end
 	end
+
+	-- Видаляємо всі елементи з кожної ділянки
+	local totalRemoved = {
+		explorers = 0,
+		sharks = 0,
+		kaijus = 0,
+		boats = 0,
+	}
+
+	for _, tileCoords in ipairs(tilesToClear) do
+		local removed = self:removeAllElementsFromTile(tileCoords.q, tileCoords.r)
+
+		-- Підсумовуємо результати
+		if removed then
+			totalRemoved.explorers = totalRemoved.explorers + (removed.explorers or 0)
+			totalRemoved.sharks = totalRemoved.sharks + (removed.sharks or 0)
+			totalRemoved.kaijus = totalRemoved.kaijus + (removed.kaijus or 0)
+			totalRemoved.boats = totalRemoved.boats + (removed.boats or 0)
+		end
+	end
+
+	print("📊 Водоверть видалила:")
+	print("   Дослідників:", totalRemoved.explorers)
+	print("   Акул:", totalRemoved.sharks)
+	print("   Кайджю:", totalRemoved.kaijus)
+	print("   Човнів:", totalRemoved.boats)
+
+	return totalRemoved
+end
+
+function FloodPhase:removeAllElementsFromTile(q, r)
+	print("🗑️ Прибирання всіх елементів з Q=", q, "R=", r)
+
+	local removed = {
+		explorers = 0,
+		sharks = 0,
+		kaijus = 0,
+		boats = 0,
+	}
+
+	-- 1. Спочатку видаляємо дослідників на цьому тайлі (ВИПРАВЛЕНО)
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:GetAttribute("IsExplorer") then
+			local objQ = obj:GetAttribute("Q")
+			local objR = obj:GetAttribute("R")
+
+			-- ВИПРАВЛЕННЯ: Уважно порівнюємо значення
+			if objQ ~= nil and objR ~= nil then
+				local targetQ = tonumber(q)
+				local targetR = tonumber(r)
+				local expQ = tonumber(objQ)
+				local expR = tonumber(objR)
+
+				if targetQ and targetR and expQ and expR then
+					if expQ == targetQ and expR == targetR then
+						local explorerId = obj:GetAttribute("ExplorerId")
+						local playerName = obj:GetAttribute("Player")
+
+						-- Видаляємо з даних гравця
+						self:removeExplorerFromPlayerData(playerName, explorerId, q, r)
+
+						-- Повідомляємо гравців
+						self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
+							type = "explorer_removed_by_effect",
+							explorerId = explorerId,
+							playerName = playerName,
+							q = q,
+							r = r,
+							reason = "whirlpool",
+						})
+
+						-- Видаляємо на сервері
+						obj:Destroy()
+						removed.explorers = removed.explorers + 1
+						print("👤 Видалено дослідника ID=", explorerId, "гравця", playerName)
+					end
+				end
+			end
+		end
+	end
+
+	-- 2. Також перевіряємо дослідників в даних гри (які можуть бути у воді)
+	for _, playerData in pairs(self.players) do
+		if playerData.explorers then
+			for i = #playerData.explorers, 1, -1 do
+				local explorer = playerData.explorers[i]
+				if explorer.q == q and explorer.r == r then
+					print("👤 Видаляємо дослідника з даних гри ID=", explorer.id)
+
+					self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
+						type = "explorer_removed_by_effect",
+						explorerId = explorer.id,
+						playerName = explorer.player.Name,
+						q = q,
+						r = r,
+						reason = "whirlpool",
+					})
+
+					table.remove(playerData.explorers, i)
+					removed.explorers = removed.explorers + 1
+				end
+			end
+		end
+	end
+
+	-- 2. Видаляємо істот (акули, кайджю)
+	local creatures = {
+		{ type = "IsShark", name = "sharks" },
+		{ type = "IsKaiju", name = "kaijus" },
+	}
+
+	for _, creature in ipairs(creatures) do
+		for _, obj in ipairs(workspace:GetChildren()) do
+			if obj:GetAttribute(creature.type) then
+				local objQ = obj:GetAttribute("Q")
+				local objR = obj:GetAttribute("R")
+
+				-- Перетворюємо на числа
+				local targetQ = tonumber(q) or q
+				local targetR = tonumber(r) or r
+				local creatureQ = tonumber(objQ) or objQ
+				local creatureR = tonumber(objR) or objR
+
+				if creatureQ == targetQ and creatureR == targetR then
+					obj:Destroy()
+					removed[creature.name] = (removed[creature.name] or 0) + 1
+					print("🗑️ Видалено істоту:", creature.type, "на Q=", q, "R=", r)
+				end
+			end
+		end
+	end
+
+	-- 3. Видаляємо човни
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:GetAttribute("IsBoat") then
+			local objQ = obj:GetAttribute("Q")
+			local objR = obj:GetAttribute("R")
+
+			-- Перетворюємо на числа
+			local targetQ = tonumber(q) or q
+			local targetR = tonumber(r) or r
+			local boatQ = tonumber(objQ) or objQ
+			local boatR = tonumber(objR) or objR
+
+			if boatQ == targetQ and boatR == targetR then
+				local boatId = obj:GetAttribute("BoatId")
+				local boatPlayer = obj:GetAttribute("Player")
+
+				-- Спочатку видаляємо всіх дослідників, які були на цьому човні
+				local explorersOnBoat = self:removeExplorersFromBoat(obj)
+				removed.explorers = removed.explorers + explorersOnBoat
+
+				-- Надсилаємо клієнтам команду на видалення човна
+				self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
+					type = "boat_removed_by_effect",
+					boatId = boatId,
+					q = q,
+					r = r,
+					playerName = boatPlayer,
+					reason = "whirlpool",
+				})
+
+				-- Видаляємо сам човен на сервері
+				obj:Destroy()
+				removed.boats = removed.boats + 1
+				print(
+					"🚤 Видалено човен через водоверть (дослідників на човні:",
+					explorersOnBoat,
+					")"
+				)
+			end
+		end
+	end
+
+	return removed
+end
+
+function FloodPhase:removeExplorersFromBoat(boat)
+	local boatId = boat:GetAttribute("BoatId")
+	if not boatId then
+		return 0
+	end
+
+	print("👤 Видалення дослідників з човна #", boatId)
+
+	local explorersRemoved = 0
+
+	-- Шукаємо всіх дослідників, які знаходяться на цьому човні
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:GetAttribute("IsExplorer") then
+			local explorerBoatId = obj:GetAttribute("BoatId")
+
+			-- Перевіряємо, чи дослідник на цьому човні
+			if explorerBoatId and tostring(explorerBoatId) == tostring(boatId) then
+				local explorerId = obj:GetAttribute("ExplorerId")
+				local playerName = obj:GetAttribute("Player")
+				local q = boat:GetAttribute("Q")
+				local r = boat:GetAttribute("R")
+
+				-- Видаляємо з даних гравця
+				self:removeExplorerFromPlayerData(playerName, explorerId, q, r)
+
+				-- Повідомляємо про видалення
+				self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
+					type = "explorer_removed_by_effect",
+					explorerId = explorerId,
+					playerName = playerName,
+					q = q,
+					r = r,
+					reason = "whirlpool_boat",
+				})
+
+				-- Видаляємо візуал
+				obj:Destroy()
+				explorersRemoved = explorersRemoved + 1
+			end
+		end
+	end
+
+	if explorersRemoved > 0 then
+		print("👤 Видалено дослідників з човна:", explorersRemoved)
+	end
+
+	return explorersRemoved
+end
+
+function FloodPhase:removeExplorerFromPlayerData(playerName, explorerId, q, r)
+	-- Шукаємо гравця за ім'ям
+	for player, playerData in pairs(self.players) do
+		if player.Name == playerName then
+			if playerData.explorers then
+				for i = #playerData.explorers, 1, -1 do
+					local explorer = playerData.explorers[i]
+					if explorer.id == explorerId then
+						table.remove(playerData.explorers, i)
+						print(
+							"🗑️ Видалено дослідника",
+							explorerId,
+							"з даних гравця",
+							playerName
+						)
+						return true
+					end
+				end
+			end
+		end
+	end
+	return false
 end
 
 function FloodPhase:createSimpleWhirlpoolEffect(q, r)
@@ -1294,71 +1561,11 @@ function FloodPhase:activateVolcano(tileType, q, r, coordKey)
 	self:removeAllElementsFromTile(q, r)
 
 	-- Блокуємо ділянку
-	self:blockTileForMovement(q, r, "volcano")
+	--self:blockTileForMovement(q, r, "volcano")
 
 	-- Перевіряємо, чи не закінчилася гра
 	if volcanoData.count >= 3 then
 		self:endGameDueToVolcanoes()
-	end
-end
-
-function FloodPhase:removeAllElementsFromTile(q, r)
-	print("🗑️ Прибирання всіх елементів з Q=", q, "R=", r)
-
-	-- Дослідники
-	local explorersRemoved = 0
-	for _, obj in ipairs(workspace:GetChildren()) do
-		if obj:GetAttribute("IsExplorer") then
-			local objQ = obj:GetAttribute("Q")
-			local objR = obj:GetAttribute("R")
-			if objQ == q and objR == r then
-				-- Повідомляємо гравців
-				self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
-					type = "explorer_removed_by_effect",
-					explorerId = obj:GetAttribute("ExplorerId"),
-					playerName = obj:GetAttribute("Player"),
-					q = q,
-					r = r,
-					reason = "whirlpool",
-				})
-
-				obj:Destroy()
-				explorersRemoved = explorersRemoved + 1
-			end
-		end
-	end
-
-	if explorersRemoved > 0 then
-		print("👤 Видалено дослідників:", explorersRemoved)
-	end
-
-	-- Істоти (акули, кайджю)
-	local creatures = { "IsShark", "IsKaiju" }
-	for _, creatureType in ipairs(creatures) do
-		for _, obj in ipairs(workspace:GetChildren()) do
-			if obj:GetAttribute(creatureType) then
-				local objQ = obj:GetAttribute("Q")
-				local objR = obj:GetAttribute("R")
-				if objQ == q and objR == r then
-					obj:Destroy()
-					print("🗑️ Видалено істоту:", creatureType)
-				end
-			end
-		end
-	end
-
-	-- Плоти (звичайні човни)
-	for _, obj in ipairs(workspace:GetChildren()) do
-		if obj:GetAttribute("IsBoat") and not obj:GetAttribute("IsExtraBoat") then
-			local objQ = obj:GetAttribute("Q")
-			local objR = obj:GetAttribute("R")
-			if objQ == q and objR == r then
-				-- Переносимо дослідників з човна
-				self:moveExplorersFromBoat(obj)
-				obj:Destroy()
-				print("🚤 Видалено човен через водоверть")
-			end
-		end
 	end
 end
 

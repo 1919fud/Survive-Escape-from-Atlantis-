@@ -2621,6 +2621,147 @@ UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
 				break
 			end
 		end
+	elseif data.type == "boat_removed_by_effect" then
+		print(
+			"🚤 [КЛІЄНТ] Отримано команду на видалення човна #",
+			data.boatId,
+			"причина:",
+			data.reason
+		)
+
+		-- Шукаємо човен за ID
+		local boatToRemove = nil
+		for _, obj in ipairs(workspace:GetChildren()) do
+			if obj:GetAttribute("IsBoat") then
+				local boatId = obj:GetAttribute("BoatId")
+				if boatId and tostring(boatId) == tostring(data.boatId) then
+					boatToRemove = obj
+					break
+				end
+			end
+		end
+
+		-- Або шукаємо за координатами
+		if not boatToRemove then
+			for _, obj in ipairs(workspace:GetChildren()) do
+				if obj:GetAttribute("IsBoat") then
+					local objQ = obj:GetAttribute("Q")
+					local objR = obj:GetAttribute("R")
+					if objQ == data.q and objR == data.r then
+						boatToRemove = obj
+						break
+					end
+				end
+			end
+		end
+
+		-- Видаляємо човен
+		if boatToRemove then
+			print("🗑️ [КЛІЄНТ] Видаляємо човен:", boatToRemove.Name)
+			boatToRemove:Destroy()
+
+			-- Також очищаємо підсвічування тайлів для цього човна
+			clearBoatTileHighlights()
+
+			-- Якщо цей човен був обраний, скидаємо вибір
+			if selectedBoat and selectedBoat == boatToRemove then
+				clearBoatSelection()
+			end
+		else
+			print("⚠️ [КЛІЄНТ] Човен для видалення не знайдений")
+		end
+	elseif data.type == "explorer_removed_by_effect" then
+		print(
+			"👤 [КЛІЄНТ] Отримано команду на видалення дослідника #",
+			data.explorerId
+		)
+
+		-- Шукаємо дослідника за ID
+		local explorerToRemove = nil
+		for _, obj in ipairs(workspace:GetChildren()) do
+			if obj:GetAttribute("IsExplorer") then
+				local explorerId = obj:GetAttribute("ExplorerId")
+				if explorerId and tostring(explorerId) == tostring(data.explorerId) then
+					explorerToRemove = obj
+					break
+				end
+			end
+		end
+
+		-- Або шукаємо за координатами та гравцем
+		if not explorerToRemove then
+			for _, obj in ipairs(workspace:GetChildren()) do
+				if obj:GetAttribute("IsExplorer") then
+					local objQ = obj:GetAttribute("Q")
+					local objR = obj:GetAttribute("R")
+					local playerName = obj:GetAttribute("Player")
+
+					if objQ == data.q and objR == data.r and playerName == data.playerName then
+						explorerToRemove = obj
+						break
+					end
+				end
+			end
+		end
+
+		-- Видаляємо дослідника
+		if explorerToRemove then
+			print("🗑️ [КЛІЄНТ] Видаляємо дослідника:", explorerToRemove.Name)
+			explorerToRemove:Destroy()
+
+			-- Якщо цей дослідник був обраний, скидаємо вибір
+			if selectedExplorer and selectedExplorer == explorerToRemove then
+				clearSelectionState()
+			end
+		else
+			print("⚠️ [КЛІЄНТ] Дослідник для видалення не знайдений")
+		end
+	end
+
+	if data.type == "boat_removed_by_effect" then
+		print("🚤 [КЛІЄНТ] Отримано команду на видалення човна #", data.boatId)
+
+		-- Шукаємо човен за ID
+		local boatToRemove = nil
+		for _, obj in ipairs(workspace:GetChildren()) do
+			if obj:GetAttribute("IsBoat") then
+				local boatId = obj:GetAttribute("BoatId")
+				if boatId and tostring(boatId) == tostring(data.boatId) then
+					boatToRemove = obj
+					break
+				end
+			end
+		end
+
+		-- Або шукаємо за координатами
+		if not boatToRemove then
+			for _, obj in ipairs(workspace:GetChildren()) do
+				if obj:GetAttribute("IsBoat") then
+					local objQ = obj:GetAttribute("Q")
+					local objR = obj:GetAttribute("R")
+					if objQ == data.q and objR == data.r then
+						boatToRemove = obj
+						break
+					end
+				end
+			end
+		end
+
+		-- Видаляємо човен
+		if boatToRemove then
+			print("🗑️ [КЛІЄНТ] Видаляємо човен:", boatToRemove.Name)
+			boatToRemove:Destroy()
+
+			-- Очищаємо підсвічування
+			clearBoatTileHighlights()
+
+			-- Якщо цей човен був обраний, скидаємо вибір
+			if selectedBoat and selectedBoat == boatToRemove then
+				clearBoatSelection()
+			end
+		else
+			print("⚠️ [КЛІЄНТ] Човен для видалення не знайдений")
+		end
 	elseif data.type == "tile_flooded" then
 		print("🌊 [КЛІЄНТ] Тайл затоплено: Q=" .. data.q .. " R=" .. data.r)
 
