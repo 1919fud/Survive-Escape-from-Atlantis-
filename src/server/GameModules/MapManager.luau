@@ -73,7 +73,7 @@ function MapManager:generateLandTiles()
 
 	-- Список всех нужных суш
 	local landTypes = {}
-	for _ = 0, 0 do
+	for _ = 1, 16 do
 		table.insert(landTypes, "Beach")
 	end
 	for _ = 1, 16 do

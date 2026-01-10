@@ -41,6 +41,9 @@ function AtlantisGame:start()
 	self:setupExplorerPlacement()
 	self:setupMainGameHandlers()
 	self:setupFloodPhaseHandlers()
+
+	self.floodPhase.placementPhase = self.placementPhase
+	self.floodPhase.mainGame = self
 end
 
 function AtlantisGame:initializeMap()

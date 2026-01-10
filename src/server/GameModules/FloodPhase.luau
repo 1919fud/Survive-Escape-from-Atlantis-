@@ -66,6 +66,8 @@ function FloodPhase:start(player, players, networkManager, mapManager)
 	if self.mainGame then
 		self.mainGame.isGameActive = false
 		self.mainGame.gameState = "flood"
+
+		self.placementPhase = self.mainGame.placementPhase
 	end
 
 	-- Визначаємо поточний тип тайлів для затоплення
@@ -533,7 +535,7 @@ function FloodPhase:handleSpecialEffect(effectType, tileType, q, r, tileData)
 	elseif effectType == "kaiju" then
 		self:spawnKaiju(tileType, q, r, coordKey)
 	elseif effectType == "boat" then
-		self:spawnExtraBoat(tileType, q, r, coordKey)
+		self:spawnBoat(tileType, q, r, coordKey)
 	elseif effectType == "whirlpool" then
 		self:createWhirlpool(tileType, q, r, coordKey)
 	elseif effectType == "volcano" then
@@ -687,8 +689,7 @@ function FloodPhase:createSharkVisual(q, r)
 	local yOffset = tileTopY - sharkBottomY + 0.5
 
 	-- Додаємо анімацію плавання
-	local rotatedCFrame = (targetTile.CFrame + Vector3.new(0, yOffset, 0))
-		* CFrame.Angles(math.rad(math.random(0, 180)), 0, 0)
+	local rotatedCFrame = (targetTile.CFrame + Vector3.new(0, yOffset, 0)) * CFrame.Angles(math.rad(180), 0, 0)
 
 	shark:PivotTo(rotatedCFrame)
 
@@ -765,8 +766,7 @@ function FloodPhase:moveSharkToPosition(oldCoordKey, newQ, newR)
 		local sharkBottomY = primaryPart.Position.Y - primaryPart.Size.Y / 2
 		local yOffset = tileTopY - sharkBottomY + 0.5
 
-		local newCFrame = (targetTile.CFrame + Vector3.new(0, yOffset, 0))
-			* CFrame.Angles(0, math.rad(math.random(0, 360)), 0)
+		local newCFrame = (targetTile.CFrame + Vector3.new(0, yOffset, 0)) * CFrame.Angles(0, math.rad(360), 0)
 
 		shark:PivotTo(newCFrame)
 	end
@@ -943,8 +943,7 @@ function FloodPhase:createKaijuVisual(q, r)
 	local kaijuBottomY = primaryPart.Position.Y - primaryPart.Size.Y / 2
 	local yOffset = tileTopY - kaijuBottomY + 1.0 -- Вище ніж акула
 
-	local rotatedCFrame = (targetTile.CFrame + Vector3.new(0, yOffset, 0))
-		* CFrame.Angles(math.rad(math.random(0, 180)), 0, 0)
+	local rotatedCFrame = (targetTile.CFrame + Vector3.new(0, yOffset, 0)) * CFrame.Angles(math.rad(180), 0, 0)
 
 	kaiju:PivotTo(rotatedCFrame)
 
@@ -1019,8 +1018,7 @@ function FloodPhase:moveKaijuToPosition(oldCoordKey, newQ, newR)
 		local kaijuBottomY = primaryPart.Position.Y - primaryPart.Size.Y / 2
 		local yOffset = tileTopY - kaijuBottomY + 1.0
 
-		local newCFrame = (targetTile.CFrame + Vector3.new(0, yOffset, 0))
-			* CFrame.Angles(0, math.rad(math.random(0, 360)), 0)
+		local newCFrame = (targetTile.CFrame + Vector3.new(0, yOffset, 0)) * CFrame.Angles(0, math.rad(360), 0)
 
 		kaiju:PivotTo(newCFrame)
 	end
@@ -1036,7 +1034,7 @@ function FloodPhase:moveKaijuToPosition(oldCoordKey, newQ, newR)
 	print("✅ Переміщено кайджю на Q=", newQ, "R=", newR)
 end
 
-function FloodPhase:spawnExtraBoat(tileType, q, r, coordKey)
+function FloodPhase:spawnBoat(tileType, q, r, coordKey)
 	local boatData = self.globalEffects.extraBoats
 
 	-- Оновлюємо лічильник для типу плитки
@@ -1052,8 +1050,16 @@ function FloodPhase:spawnExtraBoat(tileType, q, r, coordKey)
 		boatData.count = boatData.count + 1
 		boatData.placedOn[coordKey] = true
 
+		local currentPlayer = self.currentFloodPlayer
+
 		-- Тут код для створення човна
-		self:createExtraBoatVisual(q, r)
+		if currentPlayer then
+			-- Використовуємо метод PlacementPhase
+			local boat = self.mainGame.placementPhase:createBoatVisual(nil, q, r)
+			if boat then
+				print("✅ Додатковий човен створено")
+			end
+		end
 	else
 		print("🚤 Усі додаткові човни вже розміщені (4 шт)")
 		-- Можна додати повідомлення гравцю

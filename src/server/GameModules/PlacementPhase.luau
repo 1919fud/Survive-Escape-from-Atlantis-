@@ -559,9 +559,6 @@ function PlacementPhase:handlePlaceBoat(player, q, r)
 
 	self.boatsPlaced[player] = (self.boatsPlaced[player] or 0) + 1
 
-	-- Создаем човен
-	--self:createBoatVisual(player, q, r)
-
 	-- Убираем подсветку с этого тайла
 	local highlight = targetTile:FindFirstChild("BoatHighlight")
 	if highlight then
@@ -696,7 +693,12 @@ function PlacementPhase:createBoatVisual(player, q, r)
 
 	boatId = boatCount + 1 -- Унікальний ID
 
-	print("🆔 Створюємо човен з ID:", boatId, "для гравця:", player.Name)
+	print(
+		"🆔 Створюємо човен з ID:",
+		boatId,
+		"для гравця:",
+		player and player.Name or "Special"
+	)
 
 	-- Іщем тайл
 	local map = workspace:WaitForChild("Map")
@@ -720,9 +722,9 @@ function PlacementPhase:createBoatVisual(player, q, r)
 
 	-- Создаем човен
 	local boat = self.boatTemplate:Clone()
-
+	local playerName = player and player.Name or "Special"
 	-- ВАЖЛИВО: Правильне ім'я з ID
-	boat.Name = "Boat_" .. boatId .. "_" .. player.Name .. "_" .. q .. "_" .. r
+	boat.Name = "Boat_" .. boatId .. "_" .. playerName .. "_" .. q .. "_" .. r
 
 	local primaryPart = boat.PrimaryPart
 
@@ -754,7 +756,7 @@ function PlacementPhase:createBoatVisual(player, q, r)
 	-- ВАЖЛИВО: Встановлюємо всі атрибути
 	boat:SetAttribute("BoatId", boatId)
 	boat:SetAttribute("IsBoat", true)
-	boat:SetAttribute("Player", player.Name)
+	boat:SetAttribute("Player", playerName)
 	boat:SetAttribute("Q", q)
 	boat:SetAttribute("R", r)
 
@@ -766,7 +768,7 @@ function PlacementPhase:createBoatVisual(player, q, r)
 
 	print(
 		"🚤 Создан визуал човна #" .. tostring(boatId) .. " для",
-		player.Name,
+		playerName,
 		"на Q=",
 		q,
 		"R=",
