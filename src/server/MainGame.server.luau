@@ -181,47 +181,60 @@ function AtlantisGame:getAvailableMovementTiles(explorer, maxSteps)
 			-- Отримуємо тайл
 			local tile = self.mapManager:getTileAtPosition(current.q, current.r)
 			if tile then
-				-- Визначаємо тип тайла
-				local isWaterTile = tile.isWater or tile.type == "Water"
-				local isLandTile = not isWaterTile
+				-- ПЕРЕВІРКА НА АКТИВНИЙ ВУЛКАН - якщо активний вулкан, пропускаємо цей тайл
+				if tile.isVolcanoActive and tile.isBlocked then
+					print(
+						"🚫 Тайл Q=",
+						current.q,
+						"R=",
+						current.r,
+						"є АКТИВНИМ вулканом - пропускаємо"
+					)
+				else
+					-- Визначаємо тип тайла
+					local isWaterTile = tile.isWater or tile.type == "Water"
+					local isLandTile = not isWaterTile
 
-				-- ДОДАНО: Перевірка, чи це човен і чи він заповнений
-				local isBoatTile = self:hasBoatOnTile(current.q, current.r)
-				local canEnterTile = true
-				local boatId = nil
+					-- ДОДАНО: Перевірка, чи це човен і чи він заповнений
+					local isBoatTile = self:hasBoatOnTile(current.q, current.r)
+					local canEnterTile = true
+					local boatId = nil
 
-				if isBoatTile then
-					boatId = self:getBoatIdAtPosition(current.q, current.r)
-					local explorersOnBoat = self:getExplorersOnBoatCount(current.q, current.r, boatId)
+					if isBoatTile then
+						boatId = self:getBoatIdAtPosition(current.q, current.r)
+						local explorersOnBoat = self:getExplorersOnBoatCount(current.q, current.r, boatId)
 
-					if explorersOnBoat >= 3 then
-						canEnterTile = false -- Човен заповнений
-						print(
-							"    🚫 Човен #"
-								.. tostring(boatId)
-								.. " заповнений ("
-								.. explorersOnBoat
-								.. "/3)"
-						)
+						if explorersOnBoat >= 3 then
+							canEnterTile = false -- Човен заповнений
+							print(
+								"    🚫 Човен #"
+									.. tostring(boatId)
+									.. " заповнений ("
+									.. explorersOnBoat
+									.. "/3)"
+							)
+						end
 					end
-				end
 
-				-- Додаємо тайл до доступних, якщо можна
-				if canEnterTile then
-					table.insert(availableTiles, {
-						q = current.q,
-						r = current.r,
-						steps = current.steps,
-						cost = current.steps,
-						coordKey = currentKey,
-						tile = tile,
-						isWater = isWaterTile,
-						isLand = isLandTile,
-						tileType = tile.tileType or (isWaterTile and "Water" or "Land"),
-						hasEnteredWater = current.hasEnteredWater,
-						isBoatTile = isBoatTile,
-						boatId = boatId,
-					})
+					-- Додаємо тайл до доступних, якщо можна
+					if canEnterTile then
+						table.insert(availableTiles, {
+							q = current.q,
+							r = current.r,
+							steps = current.steps,
+							cost = current.steps,
+							coordKey = currentKey,
+							tile = tile,
+							isWater = isWaterTile,
+							isLand = isLandTile,
+							tileType = tile.tileType or (isWaterTile and "Water" or "Land"),
+							hasEnteredWater = current.hasEnteredWater,
+							isBoatTile = isBoatTile,
+							boatId = boatId,
+							isVolcano = tile.isVolcano,
+							isVolcanoActive = tile.isVolcanoActive,
+						})
+					end
 				end
 			end
 		end
@@ -251,25 +264,36 @@ function AtlantisGame:getAvailableMovementTiles(explorer, maxSteps)
 						local neighborTile = self.mapManager:getTileAtPosition(nq, nr)
 
 						if neighborTile then
-							local isNeighborWater = neighborTile.isWater or neighborTile.type == "Water"
+							-- ПЕРЕВІРКА: Чи не є сусід АКТИВНИМ вулканом
+							if neighborTile.isVolcanoActive and neighborTile.isBlocked then
+								print(
+									"🚫 Сусідній тайл Q=",
+									nq,
+									"R=",
+									nr,
+									"є АКТИВНИМ вулканом - не додаємо до черги"
+								)
+							else
+								local isNeighborWater = neighborTile.isWater or neighborTile.type == "Water"
 
-							-- Перевіряємо можливість переходу
-							local canMoveToNeighbor = true
-							local newHasEnteredWater = current.hasEnteredWater -- буде false, бо ми в else блоці
+								-- Перевіряємо можливість переходу
+								local canMoveToNeighbor = true
+								local newHasEnteredWater = current.hasEnteredWater -- буде false, бо ми в else блоці
 
-							if isNeighborWater then
-								-- Перший вхід у воду на цьому ходу (дозволено)
-								newHasEnteredWater = true
-							end
+								if isNeighborWater then
+									-- Перший вхід у воду на цьому ходу (дозволено)
+									newHasEnteredWater = true
+								end
 
-							if canMoveToNeighbor then
-								visited[neighborKey] = true
-								table.insert(queue, {
-									q = nq,
-									r = nr,
-									steps = current.steps + 1,
-									hasEnteredWater = newHasEnteredWater,
-								})
+								if canMoveToNeighbor then
+									visited[neighborKey] = true
+									table.insert(queue, {
+										q = nq,
+										r = nr,
+										steps = current.steps + 1,
+										hasEnteredWater = newHasEnteredWater,
+									})
+								end
 							end
 						end
 					end
@@ -284,6 +308,8 @@ function AtlantisGame:getAvailableMovementTiles(explorer, maxSteps)
 	local landCount = 0
 	local waterCount = 0
 	local boatCount = 0
+	local volcanoCount = 0
+	local activeVolcanoCount = 0
 
 	for _, tileData in ipairs(availableTiles) do
 		if tileData.isBoatTile then
@@ -298,24 +324,35 @@ function AtlantisGame:getAvailableMovementTiles(explorer, maxSteps)
 			)
 		elseif tileData.isWater then
 			waterCount = waterCount + 1
-			--print("    💧 Q=", tileData.q, "R=", tileData.r, "кроків:", tileData.steps)
-		else
-			landCount = landCount + 1
-			--[[print(
-				"    🌍 Q=",
+		elseif tileData.isVolcanoActive then
+			activeVolcanoCount = activeVolcanoCount + 1
+			print(
+				"    🌋 АКТИВНИЙ Вулкан Q=",
 				tileData.q,
 				"R=",
 				tileData.r,
-				"тип:",
-				tileData.tileType,
-				"кроків:",
-				tileData.steps
-			)]]
-			--
+				"(заблоковано - не додано до доступних)"
+			)
+		elseif tileData.isVolcano then
+			volcanoCount = volcanoCount + 1
+			print("    ⛰️ Гора з вулканом Q=", tileData.q, "R=", tileData.r, "(не активний)")
+		else
+			landCount = landCount + 1
 		end
 	end
 
-	print("  📊 Суша:", landCount, "Вода:", waterCount, "Човни:", boatCount)
+	print(
+		"  📊 Суша:",
+		landCount,
+		"Вода:",
+		waterCount,
+		"Човни:",
+		boatCount,
+		"Вулкани (не активні):",
+		volcanoCount,
+		"Активні вулкани (заблоковано):",
+		activeVolcanoCount
+	)
 
 	return availableTiles
 end

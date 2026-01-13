@@ -100,18 +100,44 @@ end
 
 function FloodPhase:findAvailableTiles(tileType)
 	self.availableTilesToFlood = {}
-
 	local allTiles = self.mapManager:getAllTiles()
 
 	for coordKey, tileData in pairs(allTiles) do
 		if tileData.type == tileType and not tileData.isFlooded then
-			table.insert(self.availableTilesToFlood, {
-				q = tileData.q,
-				r = tileData.r,
-				coordKey = coordKey,
-				tileData = tileData,
-				tileType = tileType,
-			})
+			-- Перевіряємо чи це гора з вулканом
+			local hasVolcano = tileData.specialEffect == "volcano"
+				or (tileData.meshPart and tileData.meshPart:GetAttribute("SpecialEffect") == "volcano")
+			local isVolcanoActive = tileData.meshPart and tileData.meshPart:GetAttribute("VolcanoActive")
+
+			-- Додаємо до списку навіть якщо це вулкан (але не активний)
+			if hasVolcano and not isVolcanoActive then
+				table.insert(self.availableTilesToFlood, {
+					q = tileData.q,
+					r = tileData.r,
+					coordKey = coordKey,
+					tileData = tileData,
+					tileType = tileType,
+					isVolcano = true, -- Додаємо прапорець що це вулкан
+					specialEffect = "volcano",
+				})
+				print(
+					"🌋 Додано гору з вулканом до списку затоплення: Q=",
+					tileData.q,
+					"R=",
+					tileData.r
+				)
+			elseif not hasVolcano then
+				-- Звичайні тайли без вулкана
+				table.insert(self.availableTilesToFlood, {
+					q = tileData.q,
+					r = tileData.r,
+					coordKey = coordKey,
+					tileData = tileData,
+					tileType = tileType,
+					isVolcano = false,
+					specialEffect = tileData.specialEffect,
+				})
+			end
 		end
 	end
 
@@ -231,6 +257,26 @@ function FloodPhase:handleTileSelection(player, q, r)
 	-- Встановлюємо новий вибраний тайл
 	self.selectedTile = selectedTile
 
+	-- Визначаємо повідомлення в залежності від типу тайла
+	local message = ""
+	if selectedTile.isVolcano then
+		message = "🌋 ВИБРАНО ВУЛКАН!\n"
+			.. "Цей тайл НЕ буде затоплено.\n"
+			.. "Замість цього вулкан буде АКТИВОВАНО!\n"
+			.. "📍 Q="
+			.. q
+			.. " R="
+			.. r
+			.. "\n"
+			.. "📌 Натисніть ПІДТВЕРДИТИ для активації"
+	else
+		message = "✅ Обрано тайл Q="
+			.. q
+			.. " R="
+			.. r
+			.. "\n📌 Натисніть ПІДТВЕРДИТИ для затоплення"
+	end
+
 	-- Підсвічуємо новий вибраний тайл (зелений)
 	self.networkManager:getHighlightTilesEvent():FireClient(player, {
 		type = "flood_tile_selected",
@@ -238,6 +284,7 @@ function FloodPhase:handleTileSelection(player, q, r)
 		r = r,
 		tileType = selectedTile.tileType,
 		isSelected = true,
+		isVolcano = selectedTile.isVolcano or false,
 	})
 
 	-- Запитуємо підтвердження
@@ -246,11 +293,8 @@ function FloodPhase:handleTileSelection(player, q, r)
 		q = q,
 		r = r,
 		tileType = selectedTile.tileType,
-		message = "✅ Обрано тайл Q="
-			.. q
-			.. " R="
-			.. r
-			.. "\n📌 Натисніть ПІДТВЕРДИТИ для затоплення",
+		isVolcano = selectedTile.isVolcano or false,
+		message = message,
 		confirmButton = true,
 	})
 
@@ -269,14 +313,48 @@ function FloodPhase:confirmFlood(player)
 	end
 
 	print(
-		"✅ Затоплення підтверджено! Затоплюємо тайл Q="
+		"✅ Дія підтверджена! Тайл Q="
 			.. self.selectedTile.q
 			.. " R="
 			.. self.selectedTile.r
+			.. (self.selectedTile.isVolcano and " (вулкан - активуємо)" or " (затоплюємо)")
 	)
 
-	-- Затоплюємо тайл
-	self:floodTile(self.selectedTile)
+	-- Обробляємо вулкан або звичайне затоплення
+	if self.selectedTile.isVolcano then
+		-- АКТИВУЄМО ВУЛКАН замість затоплення
+		print("🌋 Активуємо вулкан на Q=", self.selectedTile.q, "R=", self.selectedTile.r)
+		self:activateVolcanoTile(self.selectedTile.q, self.selectedTile.r)
+
+		-- Оновлюємо дані тайла в MapManager
+		local coordKey = self.mapManager:getCoordKey(self.selectedTile.q, self.selectedTile.r)
+		local tileData = self.mapManager.landTiles[coordKey]
+
+		if tileData then
+			tileData.isFlooded = false -- Не затоплено
+			tileData.type = "Volcano"
+			tileData.tileType = "Volcano"
+			tileData.isVolcanoActive = true
+			tileData.isBlocked = true
+
+			-- Оновлюємо атрибути меш-парта
+			if tileData.meshPart then
+				tileData.meshPart:SetAttribute("VolcanoActive", true)
+				tileData.meshPart:SetAttribute("IsBlocked", true)
+			end
+		end
+
+		-- Сповіщаємо всіх гравців
+		self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
+			type = "volcano_activated",
+			q = self.selectedTile.q,
+			r = self.selectedTile.r,
+			message = "🌋 ВУЛКАН АКТИВОВАНО! Тайл заблоковано для руху.",
+		})
+	else
+		-- ЗВИЧАЙНЕ ЗАТОПЛЕННЯ
+		self:floodTile(self.selectedTile)
+	end
 
 	-- Очищаємо вибір
 	self.selectedTile = nil
@@ -446,6 +524,13 @@ function FloodPhase:floodTile(tileInfo)
 
 		print("🌊 Затоплюємо тайл:", originalType, "Q=", originalQ, "R=", originalR)
 
+		-- ПЕРЕВІРКА: якщо це вулкан, не повинно бути тут (вони обробляються в confirmFlood)
+		local hasVolcano = specialEffect == "volcano"
+		if hasVolcano then
+			warn("⚠️ Спроба затопити вулкан! Це не повинно статися.")
+			return
+		end
+
 		-- 2. ПЕРЕМІЩУЄМО ДОСЛІДНИКІВ (вони залишаються на тих же координатах)
 		self:moveExplorersFromTile(originalQ, originalR)
 
@@ -539,7 +624,6 @@ function FloodPhase:handleSpecialEffect(effectType, tileType, q, r, tileData)
 	elseif effectType == "whirlpool" then
 		self:createWhirlpool(tileType, q, r, coordKey)
 	elseif effectType == "volcano" then
-		self:activateVolcano(tileType, q, r, coordKey)
 	end
 
 	-- Оновлюємо статистику
@@ -1561,12 +1645,155 @@ function FloodPhase:activateVolcano(tileType, q, r, coordKey)
 	self:removeAllElementsFromTile(q, r)
 
 	-- Блокуємо ділянку
-	--self:blockTileForMovement(q, r, "volcano")
+	self:activateVolcanoTile(q, r, "volcano")
 
 	-- Перевіряємо, чи не закінчилася гра
 	if volcanoData.count >= 3 then
 		self:endGameDueToVolcanoes()
 	end
+end
+
+function FloodPhase:activateVolcanoTile(q, r)
+	print("🌋 Активація вулкана на Q=", q, "R=", r)
+
+	-- Знаходимо тайл в workspace
+	local map = workspace:WaitForChild("Map")
+	local volcanoTile = nil
+
+	for _, obj in ipairs(map:GetDescendants()) do
+		if obj:IsA("MeshPart") then
+			local tileQ = obj:GetAttribute("Q") or obj:GetAttribute("q")
+			local tileR = obj:GetAttribute("R") or obj:GetAttribute("r")
+
+			if tileQ == q and tileR == r then
+				-- Перевіряємо, чи це земля (не вода)
+				local isLand = obj:GetAttribute("IsLand")
+					or obj:GetAttribute("TileType") == "Mountain"
+					or obj:GetAttribute("TileType") == "Volcano"
+
+				if isLand then
+					volcanoTile = obj
+					break
+				end
+			end
+		end
+	end
+
+	if not volcanoTile then
+		print(
+			"❌ Не знайдено земний тайл для активації вулкана на Q=",
+			q,
+			"R=",
+			r
+		)
+		return nil
+	end
+
+	-- 1. СПОЧАТКУ ВИДАЛЯЄМО ВСІХ ДОСЛІДНИКІВ З ВУЛКАНА
+	self:removeExplorersFromVolcano(q, r)
+
+	-- 2. Активуємо вулкан
+	volcanoTile:SetAttribute("IsVolcano", true)
+	volcanoTile:SetAttribute("VolcanoActive", true)
+	volcanoTile:SetAttribute("IsBlocked", true) -- Блокуємо для руху
+	volcanoTile:SetAttribute("TileType", "Volcano")
+	volcanoTile:SetAttribute("IsLand", true)
+	volcanoTile:SetAttribute("IsWater", false)
+
+	-- Перефарбовуємо в червоний колір
+	volcanoTile.Color = Color3.fromRGB(255, 50, 50)
+	volcanoTile.Material = Enum.Material.Neon
+
+	-- 3. ОНОВЛЮЄМО MapManager
+	if self.mapManager then
+		local coordKey = self.mapManager:getCoordKey(q, r)
+		local tileData = self.mapManager.landTiles[coordKey]
+
+		if tileData then
+			tileData.isVolcanoActive = true
+			tileData.isBlocked = true
+			tileData.type = "Volcano"
+			tileData.tileType = "Volcano"
+			tileData.isFlooded = false
+
+			-- Оновлюємо meshPart атрибути
+			if tileData.meshPart then
+				tileData.meshPart:SetAttribute("VolcanoActive", true)
+				tileData.meshPart:SetAttribute("IsBlocked", true)
+				tileData.meshPart:SetAttribute("TileType", "Volcano")
+			end
+		end
+
+		-- ВИДАЛЯЄМО водний тайл з водних тайлів MapManager
+		-- щоб він не підсвічувався червоним
+		if self.mapManager.waterTiles[coordKey] then
+			self.mapManager.waterTiles[coordKey] = nil
+			print("💧 Видалено водний тайл з MapManager для координат:", coordKey)
+		end
+	end
+
+	-- 4. ВИДАЛЯЄМО ВОДНИЙ ТАЙЛ ПІД ВУЛКАНОМ (якщо він існує)
+	for _, obj in ipairs(map:GetDescendants()) do
+		if obj:IsA("MeshPart") then
+			local tileQ = obj:GetAttribute("Q") or obj:GetAttribute("q")
+			local tileR = obj:GetAttribute("R") or obj:GetAttribute("r")
+			local isWater = obj:GetAttribute("IsWater") or obj:GetAttribute("Placeboat") == true
+
+			if tileQ == q and tileR == r and isWater then
+				print("🗑️ Видаляємо водний тайл під вулканом:", obj.Name)
+				obj:Destroy()
+			end
+		end
+	end
+
+	print("🌋 Вулкан активовано на Q=", q, "R=", r)
+	return volcanoTile
+end
+function FloodPhase:removeExplorersFromVolcano(q, r)
+	print("👤 Видалення дослідників з вулкана Q=", q, "R=", r)
+
+	local explorersRemoved = 0
+
+	-- Шукаємо дослідників у даних гри
+	for _, playerData in pairs(self.players) do
+		if playerData.explorers then
+			for i = #playerData.explorers, 1, -1 do
+				local explorer = playerData.explorers[i]
+				if explorer.q == q and explorer.r == r then
+					print("🗑️ Видаляємо дослідника", explorer.id, "з вулкана")
+
+					-- Сповіщаємо всіх гравців
+					self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
+						type = "explorer_removed_by_effect",
+						explorerId = explorer.id,
+						playerName = explorer.player.Name,
+						q = q,
+						r = r,
+						reason = "volcano",
+					})
+
+					-- Видаляємо дослідника
+					table.remove(playerData.explorers, i)
+					explorersRemoved = explorersRemoved + 1
+				end
+			end
+		end
+	end
+
+	-- Також видаляємо візуальні об'єкти дослідників
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:GetAttribute("IsExplorer") then
+			local objQ = obj:GetAttribute("Q")
+			local objR = obj:GetAttribute("R")
+
+			if objQ == q and objR == r then
+				obj:Destroy()
+			end
+		end
+	end
+
+	print("📊 Видалено дослідників з вулкана:", explorersRemoved)
+	return explorersRemoved
 end
 
 function FloodPhase:moveExplorersFromBoat(boat)
@@ -1837,5 +2064,4 @@ function FloodPhase:getFloodTypeName(tileType)
 	}
 	return names[tileType] or tileType
 end
-
 return FloodPhase

@@ -77,9 +77,10 @@ function MapManager:generateLandTiles()
 		table.insert(landTypes, "Beach")
 	end]]
 	--
-	for _ = 1, 16 do
+	--[[for _ = 1, 16 do
 		table.insert(landTypes, "Forest")
-	end
+	end]]
+	--
 	for _ = 1, 8 do
 		table.insert(landTypes, "Mountain")
 	end
@@ -289,9 +290,33 @@ function MapManager:getTileAtPosition(q, r)
 		tile.isWater = false
 		tile.isLand = true
 		tile.tileType = tile.type or "Land"
+
+		-- ПЕРЕВІРКА НА АКТИВНИЙ ВУЛКАН
+		if tile.meshPart then
+			local isVolcano = tile.meshPart:GetAttribute("IsVolcano")
+			local isVolcanoActive = tile.meshPart:GetAttribute("VolcanoActive")
+			local isBlocked = tile.meshPart:GetAttribute("IsBlocked")
+
+			tile.isVolcano = (isVolcano == true)
+			tile.isVolcanoActive = (isVolcanoActive == true)
+			tile.isBlocked = (isBlocked == true or isVolcanoActive == true)
+
+			if tile.isVolcanoActive then
+				tile.tileType = "Volcano"
+				print("🌋 Тайл Q=", q, "R=", r, "є АКТИВНИМ вулканом - заблоковано!")
+			elseif tile.isVolcano and not tile.isVolcanoActive then
+				tile.tileType = "Mountain (with Volcano)"
+				print("⛰️ Тайл Q=", q, "R=", r, "є горою з вулканом (не активний)")
+			end
+		else
+			tile.isVolcano = false
+			tile.isVolcanoActive = false
+			tile.isBlocked = false
+		end
+
 		return tile
 	elseif self.waterTiles[coordKey] then
-		return {
+		local waterTile = {
 			meshPart = self.waterTiles[coordKey],
 			type = "Water",
 			q = q,
@@ -300,7 +325,30 @@ function MapManager:getTileAtPosition(q, r)
 			isWater = true,
 			isLand = false,
 			tileType = "Water",
+			isVolcano = false,
+			isVolcanoActive = false,
+			isBlocked = false,
 		}
+
+		-- Перевіряємо водний тайл на активний вулкан
+		local meshPart = self.waterTiles[coordKey]
+		if meshPart then
+			local isVolcanoActive = meshPart:GetAttribute("VolcanoActive")
+			if isVolcanoActive == true then
+				waterTile.isVolcanoActive = true
+				waterTile.isBlocked = true
+				waterTile.tileType = "Volcano (Water)"
+				print(
+					"🌋 Водний тайл Q=",
+					q,
+					"R=",
+					r,
+					"є активним вулканом - заблоковано!"
+				)
+			end
+		end
+
+		return waterTile
 	end
 
 	return nil
