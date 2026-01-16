@@ -31,6 +31,9 @@ local isMyTurn = false
 local availableTiles = {} -- Таблиця доступних для переміщення тайлів
 local tileHighlights = {} -- Підсвічування тайлів
 local isMovementMode = false
+local isCreaturePhase = false
+local currentCreatureTurn = nil -- "Shark", "Kaiju", "Octopus"
+local selectedCreatureObj = nil -- Об'єкт вибраної істоти
 
 -- ДОДАНО: Стан для підсвічування човна
 local currentHoveredBoat = nil
@@ -1613,6 +1616,38 @@ local function highlightFloodTiles(tiles, floodType)
 	end
 end
 
+local creatureGui = Instance.new("ScreenGui")
+creatureGui.Name = "CreaturePhaseUI"
+creatureGui.Parent = PlayerGui
+creatureGui.Enabled = false
+
+local creatureFrame = Instance.new("Frame")
+creatureFrame.Size = UDim2.new(0, 200, 0, 200)
+creatureFrame.Position = UDim2.new(0.5, -100, 0.5, -100) -- Центр екрану
+creatureFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+creatureFrame.BorderSizePixel = 3
+creatureFrame.BorderColor3 = Color3.fromRGB(255, 200, 0)
+creatureFrame.Visible = true
+creatureFrame.Parent = creatureGui
+
+local creatureLabel = Instance.new("TextLabel")
+creatureLabel.Size = UDim2.new(1, 0, 0.8, 0)
+creatureLabel.Position = UDim2.new(0, 0, 0, 0)
+creatureLabel.BackgroundTransparency = 1
+creatureLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
+creatureLabel.TextScaled = true
+creatureLabel.Font = Enum.Font.FredokaOne
+creatureLabel.Text = "SHARK"
+creatureLabel.Parent = creatureFrame
+
+local instructionLabel = Instance.new("TextLabel")
+instructionLabel.Size = UDim2.new(1, 0, 0.2, 0)
+instructionLabel.Position = UDim2.new(0, 0, 0.8, 0)
+instructionLabel.BackgroundTransparency = 1
+instructionLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+instructionLabel.Text = "Випало на кубику!"
+instructionLabel.Parent = creatureFrame
+
 local floodScreenGui = Instance.new("ScreenGui")
 floodScreenGui.Name = "FloodPhaseUI"
 floodScreenGui.Parent = PlayerGui
@@ -2175,6 +2210,64 @@ RunService.Heartbeat:Connect(function()
 	end
 end)
 
+local function highlightCreatureMoves(creatureModel)
+	clearAllHighlights()
+
+	local cQ = creatureModel:GetAttribute("Q")
+	local cR = creatureModel:GetAttribute("R")
+	local cType = creatureModel:GetAttribute("CreatureType")
+	local map = workspace:WaitForChild("Map")
+	local maxDistance = 1
+	if cType == "Shark" or cType == "Kaiju" then
+		maxDistance = 2
+	end
+
+	for _, tile in ipairs(map:GetDescendants()) do
+		if tile:IsA("MeshPart") and tile:GetAttribute("Q") then
+			local tQ = tile:GetAttribute("Q")
+			local tR = tile:GetAttribute("R")
+
+			-- Обчислюємо дистанцію (спрощено)
+			local dq = tQ - cQ
+			local dr = tR - cR
+			local distance = (math.abs(dq) + math.abs(dr) + math.abs(dq + dr)) / 2
+
+			if distance >= 1 and distance <= maxDistance then
+				local isWater = tile:GetAttribute("IsWater") or tile:GetAttribute("Placeboat")
+				local isValid = false
+
+				if cType == "Shark" then
+					if isWater then
+						isValid = true
+					end
+				elseif cType == "Kaiju" then
+					isValid = true -- Кайдзю може на землю та воду
+				elseif cType == "Octopus" then
+					if isWater and distance == 1 then
+						isValid = true
+					end
+				end
+
+				if isValid then
+					local hl = Instance.new("Highlight")
+					hl.Name = "CreatureMoveHighlight"
+
+					-- Різний колір залежно від дистанції
+					if distance == 1 then
+						hl.FillColor = Color3.fromRGB(0, 200, 0) -- Зелений для 1 кроку
+					else
+						hl.FillColor = Color3.fromRGB(255, 150, 0) -- Помаранчевий для 2 кроків
+					end
+
+					hl.OutlineColor = Color3.fromRGB(255, 255, 0)
+					hl.Parent = tile
+					table.insert(tileHighlights, hl)
+				end
+			end
+		end
+	end
+end
+
 -- Обробник кліків миші
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then
@@ -2222,6 +2315,39 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 			if explorer then
 				onExplorerClick(explorer)
 				return
+			end
+			if isCreaturePhase and isMyTurn then
+				local model = target:FindFirstAncestorOfClass("Model")
+				if model and model:GetAttribute("CreatureType") == currentCreatureTurn then
+					-- Вибрали правильну істоту
+					print("🦖 Вибрано істоту: " .. currentCreatureTurn)
+					selectedCreatureObj = model
+
+					-- Підсвітити доступні тайли (сусідні)
+					highlightCreatureMoves(model)
+					return
+				end
+
+				-- Клік по тайлу для переміщення істоти
+				if selectedCreatureObj then
+					local moveHighlight = target:FindFirstChild("CreatureMoveHighlight")
+					if moveHighlight then
+						local q = target:GetAttribute("Q")
+						local r = target:GetAttribute("R")
+
+						print("📤 [КЛІЄНТ] Відправка ходу істотою: Q=" .. q .. " R=" .. r) -- ДЕБАГ
+
+						-- Відправляємо хід на сервер
+						local MoveCreatureEvent = GameEvents:WaitForChild("MoveCreatureEvent")
+						MoveCreatureEvent:FireServer(selectedCreatureObj, q, r)
+
+						-- Очищення
+						clearAllHighlights()
+						selectedCreatureObj = nil
+						creatureGui.Enabled = false
+						return
+					end
+				end
 			end
 
 			-- 5. Якщо нічого не знайдено, але є обраний дослідник
@@ -2901,6 +3027,77 @@ GameStartEvent.OnClientEvent:Connect(function(data)
 
 		confirmButton.Visible = false
 		isGamePhaseActive = false
+	elseif data.phase == "creature_phase_start" then
+		print("🎲 ФАЗА ІСТОТ: " .. data.rolledCreature)
+
+		-- Очищаємо все старе
+		clearAllHighlights()
+		floodScreenGui.Enabled = false
+		selectionFrame.Visible = false
+
+		-- Показуємо Кубик UI
+		creatureGui.Enabled = true
+		creatureLabel.Text = data.rolledCreature:upper()
+
+		-- Анімація/Колір залежно від типу
+		if data.rolledCreature == "Shark" then
+			creatureLabel.TextColor3 = Color3.fromRGB(0, 150, 255) -- Синій
+		elseif data.rolledCreature == "Kaiju" then
+			creatureLabel.TextColor3 = Color3.fromRGB(50, 255, 50) -- Зелений
+		elseif data.rolledCreature == "Octopus" then
+			creatureLabel.TextColor3 = Color3.fromRGB(255, 50, 50) -- Червоний
+		end
+
+		isCreaturePhase = true
+		currentCreatureTurn = data.rolledCreature
+
+		-- Якщо це наш хід і є істоти
+		if data.currentPlayer == player.Name and data.creaturesCount > 0 then
+			instructionLabel.Text = "ВАШ ХІД! Оберіть істоту."
+			isMyTurn = true
+		else
+			instructionLabel.Text = "Хід гравця " .. data.currentPlayer
+			isMyTurn = false
+		end
+
+		-- Ховаємо UI через 3 секунди, якщо це не наш хід або істот немає
+		if data.creaturesCount == 0 then
+			task.delay(3, function()
+				creatureGui.Enabled = false
+			end)
+		else
+			-- Залишаємо UI маленьким збоку, щоб нагадувати кого рухати
+			task.delay(2, function()
+				creatureFrame:TweenSizeAndPosition(
+					UDim2.new(0, 100, 0, 60),
+					UDim2.new(1, -120, 0, 20), -- Правий верхній кут
+					Enum.EasingDirection.Out,
+					Enum.EasingStyle.Quad,
+					0.5
+				)
+				creatureLabel.TextSize = 14
+			end)
+		end
+	elseif data.phase == "creature_phase_no_creatures" then
+		print("😴 Немає істот типу " .. data.rolledCreature)
+		creatureGui.Enabled = true
+		creatureLabel.Text = data.rolledCreature:upper()
+		instructionLabel.Text = "Немає на полі!"
+
+		-- Ховаємо через 3 секунди
+		task.delay(3, function()
+			creatureGui.Enabled = false
+		end)
+	elseif data.phase == "creature_phase_no_moves" then
+		print("🚫 Істоти типу " .. data.rolledCreature .. " не мають ходів")
+		creatureGui.Enabled = true
+		creatureLabel.Text = data.rolledCreature:upper()
+		instructionLabel.Text = "Немає куди ходити!"
+
+		-- Ховаємо через 3 секунди
+		task.delay(3, function()
+			creatureGui.Enabled = false
+		end)
 	elseif data.phase == "flood_start" then
 		-- Показуємо загальну інформацію
 		floodScreenGui.Enabled = true

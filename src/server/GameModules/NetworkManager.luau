@@ -61,6 +61,10 @@ function NetworkManager.new()
 	self.confirmFloodEvent.Name = "ConfirmFloodEvent"
 	self.confirmFloodEvent.Parent = eventsFolder
 
+	self.moveCreatureEvent = Instance.new("RemoteEvent")
+	self.moveCreatureEvent.Name = "MoveCreatureEvent"
+	self.moveCreatureEvent.Parent = eventsFolder
+
 	return self
 end
 
@@ -111,6 +115,10 @@ end
 
 function NetworkManager:getConfirmFloodEvent()
 	return self.confirmFloodEvent
+end
+
+function NetworkManager:getMoveCreatureEvent()
+	return self.moveCreatureEvent
 end
 
 return NetworkManager

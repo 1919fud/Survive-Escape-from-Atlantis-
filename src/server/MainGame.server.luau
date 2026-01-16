@@ -27,6 +27,9 @@ function AtlantisGame.new()
 	self.floodPhase = require(GameModules:WaitForChild("FloodPhase")).new()
 	self.floodPhase.mainGame = self
 
+	self.creaturePhase = require(GameModules:WaitForChild("CreaturePhase")).new()
+	self.creaturePhase.mainGame = self
+
 	print("✅ AtlantisGame инициализирован")
 
 	return self
@@ -99,9 +102,169 @@ end
 function AtlantisGame:setupMainGameHandlers()
 	print("🎮 Настройка основных игровых обработчиков...")
 
-	-- add
+	local MoveCreatureEvent = self.networkManager:getMoveCreatureEvent()
+	if MoveCreatureEvent then
+		MoveCreatureEvent.OnServerEvent:Connect(function(player, creatureModel, q, r)
+			print("🦖 [MainGame] Отримано хід істотою від:", player.Name, "Q:", q, "R:", r)
+
+			-- Викликаємо логіку з CreaturePhase
+			if self.creaturePhase then
+				self.creaturePhase:handleCreatureMove(player, creatureModel, q, r)
+			else
+				warn("❌ CreaturePhase не ініціалізовано!")
+			end
+		end)
+		print("🔗 [СЕРВЕР] MoveCreatureEvent підключено: true")
+	else
+		warn("❌ Не вдалося знайти MoveCreatureEvent!")
+	end
+	-- ========================
+
+	print("✅ Основні ігрові обробники налаштовані")
 
 	print("✅ Основные игровые обработчики настроены")
+end
+
+function AtlantisGame:getBoatAtPosition(q, r)
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:GetAttribute("IsBoat") then
+			if obj:GetAttribute("Q") == q and obj:GetAttribute("R") == r then
+				return obj
+			end
+		end
+	end
+	return nil
+end
+
+-- Видалити човен (для Кайдзю та Восьминога)
+function AtlantisGame:removeBoat(boatObj)
+	if not boatObj then
+		return
+	end
+
+	local boatId = boatObj:GetAttribute("BoatId")
+	local q = boatObj:GetAttribute("Q")
+	local r = boatObj:GetAttribute("R")
+
+	print("🔥 Знищення човна #" .. tostring(boatId))
+
+	-- Сповіщаємо клієнтів про видалення
+	self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
+		type = "boat_removed_by_effect",
+		boatId = boatId,
+		q = q,
+		r = r,
+		reason = "monster",
+	})
+
+	-- Дослідники, які були на човні, тепер у воді (оновлюємо їх статус)
+	for _, exp in ipairs(workspace:GetChildren()) do
+		if exp:GetAttribute("IsExplorer") and exp:GetAttribute("BoatId") == boatId then
+			exp:SetAttribute("OnBoat", false)
+			exp:SetAttribute("BoatId", nil)
+			exp:SetAttribute("IsOnWater", true) -- Вони падають у воду
+			-- Можна додати логіку, що вони стають "плавцями"
+		end
+	end
+
+	boatObj:Destroy()
+end
+
+-- Примусове переміщення дослідника (для Кайдзю)
+function AtlantisGame:forceMoveExplorer(explorerId, newQ, newR)
+	local explorerObj = nil
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:GetAttribute("IsExplorer") and obj:GetAttribute("ExplorerId") == explorerId then
+			explorerObj = obj
+			break
+		end
+	end
+
+	if explorerObj then
+		-- Оновлюємо дані на сервері
+		explorerObj:SetAttribute("Q", newQ)
+		explorerObj:SetAttribute("R", newR)
+
+		-- Перевіряємо, чи це вода
+		local tile = self.mapManager:getTileAtPosition(newQ, newR)
+		local isWater = false
+		if tile and (tile.isWater or tile.meshPart:GetAttribute("IsWater")) then
+			isWater = true
+		end
+		explorerObj:SetAttribute("IsOnWater", isWater)
+
+		-- Відправляємо подію клієнтам для візуального оновлення
+		self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
+			type = "explorer_moved_by_flood",
+			explorerId = explorerId,
+			toQ = newQ,
+			toR = newR,
+		})
+	end
+end
+
+-- Отримати список дослідників на тайлі
+function AtlantisGame:getExplorersOnTile(q, r)
+	local list = {}
+
+	-- 1. Шукаємо у даних гравців
+	for player, playerData in pairs(self.players) do
+		if playerData.explorers then
+			for _, explorer in ipairs(playerData.explorers) do
+				if explorer.q == q and explorer.r == r then
+					table.insert(list, {
+						explorerId = explorer.id,
+						playerName = player.Name,
+						isOnBoat = explorer.isOnBoat or false,
+						model = nil, -- поки що
+					})
+				end
+			end
+		end
+	end
+
+	-- 2. Додаємо візуальні об'єкти
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:GetAttribute("IsExplorer") then
+			local eQ = obj:GetAttribute("Q")
+			local eR = obj:GetAttribute("R")
+			if eQ == q and eR == r then
+				for i, expData in ipairs(list) do
+					if expData.explorerId == obj:GetAttribute("ExplorerId") then
+						expData.model = obj
+						break
+					end
+				end
+			end
+		end
+	end
+
+	return list
+end
+
+function AtlantisGame:removeExplorer(explorerId, playerName)
+	for player, playerData in pairs(self.players) do
+		if player.Name == playerName then
+			if playerData.explorers then
+				for i = #playerData.explorers, 1, -1 do
+					local explorer = playerData.explorers[i]
+					if explorer.id == explorerId then
+						table.remove(playerData.explorers, i)
+						print("🗑️ Видалено дослідника", explorerId, "гравця", playerName)
+						return true
+					end
+				end
+			end
+		end
+	end
+	return false
+end
+
+function AtlantisGame:setupCreaturePhaseHandlers()
+	local MoveCreatureEvent = self.networkManager:getMoveCreatureEvent() -- Треба створити в NetworkManager
+	MoveCreatureEvent.OnServerEvent:Connect(function(player, creatureId, q, r)
+		self.creaturePhase:handleCreatureMove(player, creatureId, q, r)
+	end)
 end
 
 function AtlantisGame:setupFloodPhaseHandlers()
@@ -586,6 +749,11 @@ function AtlantisGame:startFloodPhase(player)
 	self.turnManager:nextTurn()
 end
 
+function AtlantisGame:startCreaturePhase(player)
+	self.gameState = "creatures"
+	self.creaturePhase:start(player, self)
+end
+
 function AtlantisGame:returnToMainGame()
 	print("🔄 Повернення до основної гри після затоплення")
 
@@ -869,7 +1037,7 @@ function AtlantisGame:getExplorerCountOnTile(q, r)
 	return count
 end
 
-function AtlantisGame:getExplorersOnTile(q, r)
+--[[function AtlantisGame:getExplorersOnTile(q, r)
 	local explorers = {}
 
 	for _, playerData in pairs(self.players) do
@@ -891,7 +1059,8 @@ function AtlantisGame:getExplorersOnTile(q, r)
 	end
 
 	return explorers
-end
+end]]
+--
 
 function AtlantisGame:getBoatIdAtPosition(q, r)
 	--print("🔍 Пошук човна на Q=", q, "R=", r)

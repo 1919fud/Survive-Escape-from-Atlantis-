@@ -1992,14 +1992,13 @@ function FloodPhase:endFloodPhase()
 
 	self.isActive = false
 	self.selectedTile = nil
-	self.currentFloodPlayer = nil
 
 	-- Очищаємо підсвічування
 	self:clearAllFloodHighlights()
 
 	-- Повертаємося до основної гри
 	if self.mainGame then
-		self.mainGame:returnToMainGameAfterFlood()
+		self.mainGame:startCreaturePhase(self.currentFloodPlayer)
 	end
 end
 function FloodPhase:clearAllFloodHighlights()
