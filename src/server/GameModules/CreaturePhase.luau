@@ -113,7 +113,6 @@ function CreaturePhase:moveShark(shark, q, r)
 	local startQ = shark:GetAttribute("Q")
 	local startR = shark:GetAttribute("R")
 
-	-- Перевіряємо дистанцію (гексова)
 	local distance = self:getHexDistance(startQ, startR, q, r)
 	if distance > 2 or distance < 1 then
 		print("❌ Акула може рухатися лише на 1-2 ділянки")
@@ -121,18 +120,38 @@ function CreaturePhase:moveShark(shark, q, r)
 	end
 
 	local tile = self.mainGame.mapManager:getTileAtPosition(q, r)
-	if not tile or not (tile.isWater or tile.meshPart:GetAttribute("IsWater")) then
+	if not tile then
+		print("❌ Тайл не існує")
+		return false
+	end
+
+	-- Акула може тільки на ВОДУ
+	if not tile.isWater then
 		print("❌ Акула може рухатися тільки на водні ділянки")
 		return false
 	end
 
-	-- Перевіряємо, чи всі проміжні ділянки (якщо distance = 2) також вода
+	-- Перевіряємо проміжні ділянки (якщо distance = 2)
 	if distance == 2 then
 		local intermediate = self:getIntermediateHex(startQ, startR, q, r)
 		if intermediate then
 			local interTile = self.mainGame.mapManager:getTileAtPosition(intermediate.q, intermediate.r)
-			if not interTile or not (interTile.isWater or interTile.meshPart:GetAttribute("IsWater")) then
+
+			-- Проміжна ділянка має бути ВОДОЮ та не бути островом
+			if not interTile or not interTile.isWater then
 				print("❌ Проміжна ділянка не водна")
+				return false
+			end
+
+			-- ДОДАТКОВА ПЕРЕВІРКА: чи не є проміжна ділянка островом
+			-- (Це може статися, якщо острів ще не затоплений)
+			if interTile.meshPart and interTile.meshPart:GetAttribute("IsLand") then
+				print(
+					"❌ Проміжна ділянка - острів! Q="
+						.. intermediate.q
+						.. " R="
+						.. intermediate.r
+				)
 				return false
 			end
 		end
@@ -359,51 +378,115 @@ function CreaturePhase:getIntermediateHex(q1, r1, q2, r2)
 end
 
 function CreaturePhase:getAvailableTilesForCreature(creature, maxDistance)
-	local q = creature:GetAttribute("Q")
-	local r = creature:GetAttribute("R")
-	local cType = creature:GetAttribute("CreatureType")
+	local availableTiles = {}
+	local q = creature.q or creature:GetAttribute("Q")
+	local r = creature.r or creature:GetAttribute("R")
+	local cType = creature.type or creature:GetAttribute("CreatureType")
 
-	local available = {}
+	-- Отримуємо всі тайли
 	local allTiles = self.mainGame.mapManager:getAllTiles()
+	local waterTiles = self.mainGame.mapManager.waterTiles
 
 	for coordKey, tileData in pairs(allTiles) do
-		local tQ = tileData.q
-		local tR = tileData.r
+		local distance = self:getHexDistance(q, r, tileData.q, tileData.r)
 
-		local distance = self:getHexDistance(q, r, tQ, tR)
+		-- Перевіряємо діапазон
 		if distance >= 1 and distance <= maxDistance then
 			local isValid = false
 
-			-- Перевірки для кожного типу
 			if cType == "Shark" then
-				if tileData.isWater then
-					isValid = true
-				end
-			elseif cType == "Kaiju" then
-				if not (tileData.isVolcanoActive and tileData.isBlocked) then
-					-- Перевіряємо, чи немає там іншого кайдзю
-					if not self:hasKaijuOnTile(tQ, tR) or (tQ == q and tR == r) then
+				-- Акула: тільки вода, і не затоплена земля
+				if tileData.isWater and not tileData.isFlooded then
+					-- Перевіряємо проміжні ділянки (якщо distance = 2)
+					if distance == 2 then
+						local intermediate = self:getIntermediateHex(q, r, tileData.q, tileData.r)
+						if intermediate then
+							local interTile = self.mainGame.mapManager:getTileAtPosition(intermediate.q, intermediate.r)
+							if interTile and interTile.isWater and not interTile.isFlooded then
+								isValid = true
+							end
+						end
+					else
 						isValid = true
 					end
 				end
+			elseif cType == "Kaiju" then
+				-- Кайдзю: може на землю та воду
+				-- Не може на активний вулкан
+				if not (tileData.isVolcanoActive and tileData.isBlocked) then
+					-- Перевіряємо, чи немає там іншого кайдзю (крім себе)
+					if not self:hasKaijuOnTile(tileData.q, tileData.r) or (tileData.q == q and tileData.r == r) then
+						-- Перевіряємо проміжні ділянки
+						if distance == 2 then
+							local intermediate = self:getIntermediateHex(q, r, tileData.q, tileData.r)
+							if intermediate then
+								local interTile =
+									self.mainGame.mapManager:getTileAtPosition(intermediate.q, intermediate.r)
+								if interTile and not (interTile.isVolcanoActive and interTile.isBlocked) then
+									isValid = true
+								end
+							end
+						else
+							isValid = true
+						end
+					end
+				end
 			elseif cType == "Octopus" then
-				if tileData.isWater and distance == 1 then
+				-- Восьминіг: тільки вода, 1 крок
+				if tileData.isWater and not tileData.isFlooded and distance == 1 then
 					isValid = true
 				end
 			end
 
 			if isValid then
-				table.insert(available, {
-					q = tQ,
-					r = tR,
+				table.insert(availableTiles, {
+					q = tileData.q,
+					r = tileData.r,
 					distance = distance,
 					tileType = tileData.type or "Unknown",
+					isWater = tileData.isWater,
 				})
 			end
 		end
 	end
 
-	return available
+	return availableTiles
+end
+
+function CreaturePhase:hasLandAboveWater(q, r)
+	-- Шукаємо землю на цих координатах
+	local allTiles = self.mainGame.mapManager:getAllTiles()
+	local coordKey = self.mainGame.mapManager:getCoordKey(q, r)
+
+	-- Якщо в landTiles є запис - це земля
+	if allTiles[coordKey] then
+		local tile = allTiles[coordKey]
+		return not tile.isWater -- Повертає true якщо це земля
+	end
+
+	return false
+end
+
+function CreaturePhase:hasLandBetween(q1, r1, q2, r2)
+	local distance = self:getHexDistance(q1, r1, q2, r2)
+
+	if distance ~= 2 then
+		return false -- Тільки для дистанції 2
+	end
+
+	-- Знаходимо проміжний гекс
+	local intermediate = self:getIntermediateHex(q1, r1, q2, r2)
+	if not intermediate then
+		return false
+	end
+
+	-- Перевіряємо, чи це земля
+	local tile = self.mainGame.mapManager:getTileAtPosition(intermediate.q, intermediate.r)
+	if tile and not tile.isWater then
+		return true -- Це острів на шляху!
+	end
+
+	return false
 end
 
 function CreaturePhase:pushExplorerToNeighbor(explorerObj, currentQ, currentR)

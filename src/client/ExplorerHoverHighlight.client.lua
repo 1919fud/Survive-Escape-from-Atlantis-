@@ -2210,40 +2210,158 @@ RunService.Heartbeat:Connect(function()
 	end
 end)
 
+local function getTileType(tile)
+	local map = workspace:WaitForChild("Map")
+	local isWater = tile:GetAttribute("IsWater") or tile:GetAttribute("Placeboat")
+	local isLand = tile:GetAttribute("IsLand")
+
+	-- Якщо це вода, перевіряємо чи немає острова зверху
+	if isWater and not isLand then
+		local q = tile:GetAttribute("Q")
+		local r = tile:GetAttribute("R")
+
+		-- Шукаємо landTile з такими ж координатами
+		for _, checkTile in ipairs(map:GetDescendants()) do
+			if checkTile:IsA("MeshPart") and checkTile:GetAttribute("IsLand") then
+				local checkQ = checkTile:GetAttribute("Q")
+				local checkR = checkTile:GetAttribute("R")
+				if checkQ == q and checkR == r then
+					-- Знайшли острів на цих координатах!
+					return "land" -- Це земля, не вода
+				end
+			end
+		end
+
+		return "water" -- Дійсно вода
+	elseif isLand then
+		return "land" -- Земля
+	else
+		return "unknown"
+	end
+end
+
+-- Функція для отримання типу тайла за координатами
+local function getTileTypeAt(q, r)
+	local map = workspace:WaitForChild("Map")
+	for _, tile in ipairs(map:GetDescendants()) do
+		if tile:IsA("MeshPart") and tile:GetAttribute("Q") then
+			local tileQ = tile:GetAttribute("Q")
+			local tileR = tile:GetAttribute("R")
+			if tileQ == q and tileR == r then
+				return getTileType(tile)
+			end
+		end
+	end
+	return "unknown"
+end
+
 local function highlightCreatureMoves(creatureModel)
 	clearAllHighlights()
 
 	local cQ = creatureModel:GetAttribute("Q")
 	local cR = creatureModel:GetAttribute("R")
 	local cType = creatureModel:GetAttribute("CreatureType")
-	local map = workspace:WaitForChild("Map")
+
 	local maxDistance = 1
 	if cType == "Shark" or cType == "Kaiju" then
 		maxDistance = 2
 	end
 
+	-- Функція для перевірки чи є острів на шляху
+	local function hasLandOnPath(startQ, startR, targetQ, targetR)
+		local dq = targetQ - startQ
+		local dr = targetR - startR
+		local distance = (math.abs(dq) + math.abs(dr) + math.abs(dq + dr)) / 2
+
+		if distance ~= 2 then
+			return false -- Тільки для дистанції 2
+		end
+
+		-- Знаходимо проміжні координати
+		local midQ = math.floor((startQ + targetQ) / 2 + 0.5)
+		local midR = math.floor((startR + targetR) / 2 + 0.5)
+
+		-- Перевіряємо тип проміжної ділянки
+		local midTileType = getTileTypeAt(midQ, midR)
+		if midTileType == "land" then
+			return true -- На шляху острів!
+		end
+
+		return false
+	end
+	local map = workspace:WaitForChild("Map")
 	for _, tile in ipairs(map:GetDescendants()) do
 		if tile:IsA("MeshPart") and tile:GetAttribute("Q") then
 			local tQ = tile:GetAttribute("Q")
 			local tR = tile:GetAttribute("R")
 
-			-- Обчислюємо дистанцію (спрощено)
+			-- Пропускаємо поточну позицію
+			if tQ == cQ and tR == cR then
+				continue
+			end
+
+			-- Обчислюємо дистанцію
 			local dq = tQ - cQ
 			local dr = tR - cR
 			local distance = (math.abs(dq) + math.abs(dr) + math.abs(dq + dr)) / 2
 
 			if distance >= 1 and distance <= maxDistance then
-				local isWater = tile:GetAttribute("IsWater") or tile:GetAttribute("Placeboat")
+				local tileType = getTileType(tile)
+
 				local isValid = false
 
 				if cType == "Shark" then
-					if isWater then
-						isValid = true
+					-- Акула: тільки вода, не острів
+					if tileType == "water" then
+						-- ДОДАТКОВА ПЕРЕВІРКА: якщо distance = 2, перевіряємо чи немає острова на шляху
+						if distance == 2 then
+							if not hasLandOnPath(cQ, cR, tQ, tR) then
+								isValid = true
+							else
+								print(
+									"🚫 Не підсвічуємо Q="
+										.. tQ
+										.. " R="
+										.. tR
+										.. " - на шляху острів!"
+								)
+							end
+						else
+							isValid = true
+						end
 					end
 				elseif cType == "Kaiju" then
-					isValid = true -- Кайдзю може на землю та воду
+					-- Кайдзю: може на землю та воду
+					-- Але не на активний вулкан
+					local isVolcanoActive = tile:GetAttribute("VolcanoActive")
+					if not (isVolcanoActive and tile:GetAttribute("IsBlocked")) then
+						-- Перевіряємо, чи немає там іншого кайдзю
+						local hasOtherKaiju = false
+						for _, obj in ipairs(workspace:GetChildren()) do
+							if obj:GetAttribute("IsKaiju") then
+								local objQ = obj:GetAttribute("Q")
+								local objR = obj:GetAttribute("R")
+								if objQ == tQ and objR == tR and obj ~= creatureModel then
+									hasOtherKaiju = true
+									break
+								end
+							end
+						end
+
+						if not hasOtherKaiju then
+							-- ДОДАТКОВА ПЕРЕВІРКА для distance = 2
+							if distance == 2 then
+								if not hasLandOnPath(cQ, cR, tQ, tR) then
+									isValid = true
+								end
+							else
+								isValid = true
+							end
+						end
+					end
 				elseif cType == "Octopus" then
-					if isWater and distance == 1 then
+					-- Восьминіг: тільки вода, 1 крок
+					if tileType == "water" and distance == 1 then
 						isValid = true
 					end
 				end
@@ -2262,6 +2380,24 @@ local function highlightCreatureMoves(creatureModel)
 					hl.OutlineColor = Color3.fromRGB(255, 255, 0)
 					hl.Parent = tile
 					table.insert(tileHighlights, hl)
+
+					print(
+						"✅ Підсвічено для "
+							.. cType
+							.. ": Q="
+							.. tQ
+							.. " R="
+							.. tR
+							.. " (distance: "
+							.. distance
+							.. ", type: "
+							.. tileType
+							.. ")"
+					)
+				else
+					if tileType == "land" then
+						print("🚫 Не підсвічуємо Q=" .. tQ .. " R=" .. tR .. " - це острів!")
+					end
 				end
 			end
 		end
@@ -2317,25 +2453,25 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 				return
 			end
 			if isCreaturePhase and isMyTurn then
+				-- 1. Клік по істоті
 				local model = target:FindFirstAncestorOfClass("Model")
 				if model and model:GetAttribute("CreatureType") == currentCreatureTurn then
-					-- Вибрали правильну істоту
 					print("🦖 Вибрано істоту: " .. currentCreatureTurn)
 					selectedCreatureObj = model
 
-					-- Підсвітити доступні тайли (сусідні)
+					-- Підсвітити доступні тайли
 					highlightCreatureMoves(model)
 					return
 				end
 
-				-- Клік по тайлу для переміщення істоти
+				-- 2. Клік по тайлу для переміщення істоти
 				if selectedCreatureObj then
 					local moveHighlight = target:FindFirstChild("CreatureMoveHighlight")
 					if moveHighlight then
 						local q = target:GetAttribute("Q")
 						local r = target:GetAttribute("R")
 
-						print("📤 [КЛІЄНТ] Відправка ходу істотою: Q=" .. q .. " R=" .. r) -- ДЕБАГ
+						print("📤 [КЛІЄНТ] Відправка ходу істотою: Q=" .. q .. " R=" .. r)
 
 						-- Відправляємо хід на сервер
 						local MoveCreatureEvent = GameEvents:WaitForChild("MoveCreatureEvent")
@@ -2346,6 +2482,9 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 						selectedCreatureObj = nil
 						creatureGui.Enabled = false
 						return
+					else
+						-- Клік по недоступному тайлу
+						print("❌ Цей тайл недоступний для руху")
 					end
 				end
 			end
