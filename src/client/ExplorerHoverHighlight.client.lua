@@ -1957,29 +1957,85 @@ HighlightTilesEvent.OnClientEvent:Connect(function(data)
 end)
 
 local function clearAllHighlights()
-	-- Очищаємо підсвічування руху
+	print("🧹 Очищення всіх підсвічувань...")
+
+	-- 1. Очищаем подсветку тайлов для движения
 	for _, highlight in ipairs(tileHighlights) do
 		if highlight and highlight.Parent then
+			-- Удаляем Billboard с информацией о стоимости
+			local tile = highlight.Parent
+			local sharkCostDisplay = tile:FindFirstChild("SharkMoveCost")
+			if sharkCostDisplay then
+				sharkCostDisplay:Destroy()
+			end
+
 			highlight:Destroy()
 		end
 	end
 	tileHighlights = {}
 
-	-- Очищаємо підсвічування човнів
+	-- 2. Очищаем подсветку тайлов для човнов
 	for _, highlight in ipairs(boatTileHighlights) do
 		if highlight and highlight.Parent then
+			local tile = highlight.Parent
+			local boatCostDisplay = tile:FindFirstChild("BoatCostDisplay")
+			if boatCostDisplay then
+				boatCostDisplay:Destroy()
+			end
+
 			highlight:Destroy()
 		end
 	end
 	boatTileHighlights = {}
 
-	-- Очищаємо підсвічування затоплення
+	-- 3. Очищаем подсветку тайлов для затопления
 	for _, highlight in ipairs(floodHighlights) do
 		if highlight and highlight.Parent then
+			local tile = highlight.Parent
+			local floodInfo = tile:FindFirstChild("FloodInfo")
+			if floodInfo then
+				floodInfo:Destroy()
+			end
+
 			highlight:Destroy()
 		end
 	end
 	floodHighlights = {}
+
+	-- 4. Очищаем подсветку существ для движения
+	local map = workspace:WaitForChild("Map")
+	for _, obj in ipairs(map:GetDescendants()) do
+		if obj:IsA("MeshPart") then
+			-- Удаляем CreatureMoveHighlight
+			local creatureHighlight = obj:FindFirstChild("CreatureMoveHighlight")
+			if creatureHighlight then
+				creatureHighlight:Destroy()
+			end
+
+			-- Удаляем SharkMoveCost
+			local sharkCost = obj:FindFirstChild("SharkMoveCost")
+			if sharkCost then
+				sharkCost:Destroy()
+			end
+
+			-- Удаляем другие возможные BillboardGui
+			local otherBillboards = {
+				"CostDisplay",
+				"BoatCostDisplay",
+				"FloodInfo",
+				"SharkMoveCost",
+				"CreatureCostDisplay",
+				"KaijuMoveCost",
+			}
+
+			for _, billboardName in ipairs(otherBillboards) do
+				local billboard = obj:FindFirstChild(billboardName)
+				if billboard then
+					billboard:Destroy()
+				end
+			end
+		end
+	end
 
 	isMovementMode = false
 end
@@ -2254,6 +2310,260 @@ local function getTileTypeAt(q, r)
 	end
 	return "unknown"
 end
+local function hasLandOnPath(startQ, startR, targetQ, targetR)
+	local dq = targetQ - startQ
+	local dr = targetR - startR
+	local distance = (math.abs(dq) + math.abs(dr) + math.abs(dq + dr)) / 2
+
+	if distance ~= 2 then
+		return false -- Тільки для дистанції 2
+	end
+
+	-- Знаходимо проміжні координати
+	local midQ = math.floor((startQ + targetQ) / 2 + 0.5)
+	local midR = math.floor((startR + targetR) / 2 + 0.5)
+
+	-- Перевіряємо тип проміжної ділянки
+	local midTileType = getTileTypeAt(midQ, midR)
+	if midTileType == "land" then
+		return true -- На шляху острів!
+	end
+
+	return false
+end
+local function highlightKaijuMoves(kaijuModel)
+	local cQ = kaijuModel:GetAttribute("Q")
+	local cR = kaijuModel:GetAttribute("R")
+
+	-- Функция для вычисления гекс-дистанции
+	local function getHexDistance(q1, r1, q2, r2)
+		local dx = q2 - q1
+		local dy = r2 - r1
+		return (math.abs(dx) + math.abs(dy) + math.abs(dx + dy)) / 2
+	end
+
+	-- Функция для нахождения промежуточного гекса
+	local function getIntermediateHex(startQ, startR, endQ, endR)
+		local distance = getHexDistance(startQ, startR, endQ, endR)
+
+		if distance == 2 then
+			local directions = {
+				{ 1, 0 },
+				{ 1, -1 },
+				{ 0, -1 },
+				{ -1, 0 },
+				{ -1, 1 },
+				{ 0, 1 },
+			}
+
+			-- Проверяем все возможные промежуточные точки
+			for _, dir1 in ipairs(directions) do
+				local midQ = startQ + dir1[1]
+				local midR = startR + dir1[2]
+
+				-- Проверяем, что это соседняя клетка от старта
+				if getHexDistance(startQ, startR, midQ, midR) == 1 then
+					-- Проверяем, что это также соседняя клетка от цели
+					if getHexDistance(midQ, midR, endQ, endR) == 1 then
+						return { q = midQ, r = midR }
+					end
+				end
+			end
+		end
+
+		return nil
+	end
+
+	-- Функция для проверки доступности промежуточных клеток
+	local function checkIntermediatePaths(startQ, startR, endQ, endR)
+		local distance = getHexDistance(startQ, startR, endQ, endR)
+
+		if distance == 1 then
+			return true
+		elseif distance == 2 then
+			-- Для дистанции 2 ищем все возможные промежуточные пути
+			local directions = {
+				{ 1, 0 },
+				{ 1, -1 },
+				{ 0, -1 },
+				{ -1, 0 },
+				{ -1, 1 },
+				{ 0, 1 },
+			}
+
+			-- Проверяем все возможные промежуточные точки
+			for _, dir1 in ipairs(directions) do
+				local midQ = startQ + dir1[1]
+				local midR = startR + dir1[2]
+
+				-- Проверяем, что это соседняя клетка от старта
+				if getHexDistance(startQ, startR, midQ, midR) == 1 then
+					-- Проверяем, что это также соседняя клетка от цели
+					if getHexDistance(midQ, midR, endQ, endR) == 1 then
+						-- Проверяем, что промежуточная клетка не активный вулкан
+						local tileType = getTileTypeAt(midQ, midR)
+						local isActiveVolcano = false
+
+						-- Проверяем, является ли тайл активным вулканом
+						local map = workspace:WaitForChild("Map")
+						for _, obj in ipairs(map:GetDescendants()) do
+							if obj:IsA("MeshPart") then
+								local tileQ = obj:GetAttribute("Q") or obj:GetAttribute("q")
+								local tileR = obj:GetAttribute("R") or obj:GetAttribute("r")
+								if tileQ == midQ and tileR == midR then
+									if obj:GetAttribute("VolcanoActive") and obj:GetAttribute("IsBlocked") then
+										isActiveVolcano = true
+									end
+									break
+								end
+							end
+						end
+
+						if not isActiveVolcano then
+							-- Нашли доступный путь!
+							print(
+								"✅ Найден доступный путь для кайдзю через Q="
+									.. midQ
+									.. " R="
+									.. midR
+							)
+							return true
+						end
+					end
+				end
+			end
+
+			return false
+		end
+
+		return false
+	end
+
+	-- Собираем все тайлы на карте
+	local map = workspace:WaitForChild("Map")
+	local allTiles = {}
+	for _, obj in ipairs(map:GetDescendants()) do
+		if obj:IsA("MeshPart") and (obj:GetAttribute("Q") or obj:GetAttribute("q")) then
+			local tileQ = obj:GetAttribute("Q") or obj:GetAttribute("q")
+			local tileR = obj:GetAttribute("R") or obj:GetAttribute("r")
+
+			if tileQ == nil or tileR == nil then
+				continue
+			end
+
+			table.insert(allTiles, {
+				obj = obj,
+				q = tileQ,
+				r = tileR,
+				type = getTileType(obj),
+			})
+		end
+	end
+
+	print("🔍 Поиск доступных ходов для кайдзю из Q=" .. cQ .. " R=" .. cR)
+
+	-- Проверяем каждый тайл
+	for _, tile in ipairs(allTiles) do
+		-- Пропускаем текущую позицию
+		if tile.q == cQ and tile.r == cR then
+			continue
+		end
+
+		local distance = getHexDistance(cQ, cR, tile.q, tile.r)
+
+		-- Проверяем дистанцию (1-2 клетки)
+		if distance >= 1 and distance <= 2 then
+			-- Проверяем, не активный ли это вулкан
+			local isActiveVolcano = false
+			if tile.obj:GetAttribute("VolcanoActive") and tile.obj:GetAttribute("IsBlocked") then
+				isActiveVolcano = true
+			end
+
+			if not isActiveVolcano then
+				-- Проверяем, нет ли другого кайдзю на этом тайле
+				local hasOtherKaiju = false
+				for _, obj in ipairs(workspace:GetChildren()) do
+					if obj:GetAttribute("IsKaiju") or obj:GetAttribute("CreatureType") == "Kaiju" then
+						local objQ = obj:GetAttribute("Q")
+						local objR = obj:GetAttribute("R")
+						if objQ == tile.q and objR == tile.r and obj ~= kaijuModel then
+							hasOtherKaiju = true
+							break
+						end
+					end
+				end
+
+				if not hasOtherKaiju then
+					-- Проверяем доступность пути
+					local isValid = checkIntermediatePaths(cQ, cR, tile.q, tile.r)
+
+					if isValid then
+						-- Подсвечиваем тайл
+						local hl = Instance.new("Highlight")
+						hl.Name = "CreatureMoveHighlight"
+
+						-- Разный цвет для разной дистанции и типа местности
+						local isWater = (tile.type == "water")
+
+						if distance == 1 then
+							if isWater then
+								hl.FillColor = Color3.fromRGB(0, 150, 255) -- Синий для воды
+							else
+								hl.FillColor = Color3.fromRGB(0, 200, 0) -- Зеленый для суши
+							end
+						else
+							if isWater then
+								hl.FillColor = Color3.fromRGB(100, 100, 255) -- Голубой для воды (дальний)
+							else
+								hl.FillColor = Color3.fromRGB(255, 150, 0) -- Оранжевый для суши (дальний)
+							end
+						end
+
+						hl.OutlineColor = Color3.fromRGB(255, 255, 0)
+						hl.FillTransparency = 0.5
+						hl.OutlineTransparency = 0
+						hl.Parent = tile.obj
+
+						-- Добавляем Billboard с информацией
+						local billboard = Instance.new("BillboardGui")
+						billboard.Name = "KaijuMoveCost"
+						billboard.Size = UDim2.new(2, 0, 2, 0)
+						billboard.StudsOffset = Vector3.new(0, 3, 0)
+						billboard.AlwaysOnTop = true
+						billboard.Adornee = tile.obj
+						billboard.Parent = tile.obj
+
+						local costLabel = Instance.new("TextLabel")
+						costLabel.Name = "CostLabel"
+						costLabel.Size = UDim2.new(1, 0, 1, 0)
+						costLabel.BackgroundTransparency = 1
+						costLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+						costLabel.Text = tostring(distance) .. " 🦖"
+						costLabel.Font = Enum.Font.GothamBlack
+						costLabel.TextScaled = true
+						costLabel.TextStrokeTransparency = 0
+						costLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+						costLabel.Parent = billboard
+
+						table.insert(tileHighlights, hl)
+
+						print(
+							"✅ Подсвечено для кайдзю: Q="
+								.. tile.q
+								.. " R="
+								.. tile.r
+								.. " (дистанция: "
+								.. distance
+								.. ", тип: "
+								.. tile.type
+								.. ")"
+						)
+					end
+				end
+			end
+		end
+	end
+end
 
 local function highlightCreatureMoves(creatureModel)
 	clearAllHighlights()
@@ -2262,142 +2572,265 @@ local function highlightCreatureMoves(creatureModel)
 	local cR = creatureModel:GetAttribute("R")
 	local cType = creatureModel:GetAttribute("CreatureType")
 
-	local maxDistance = 1
-	if cType == "Shark" or cType == "Kaiju" then
-		maxDistance = 2
-	end
+	if cType == "Shark" then
+		-- Для акулы ищем все водные тайлы на расстоянии 1-2 без островов сверху
+		local map = workspace:WaitForChild("Map")
+		local highlightedCount = 0
 
-	-- Функція для перевірки чи є острів на шляху
-	local function hasLandOnPath(startQ, startR, targetQ, targetR)
-		local dq = targetQ - startQ
-		local dr = targetR - startR
-		local distance = (math.abs(dq) + math.abs(dr) + math.abs(dq + dr)) / 2
-
-		if distance ~= 2 then
-			return false -- Тільки для дистанції 2
+		-- Функция для вычисления гекс-дистанции
+		local function getHexDistance(q1, r1, q2, r2)
+			local dx = q2 - q1
+			local dy = r2 - r1
+			return (math.abs(dx) + math.abs(dy) + math.abs(dx + dy)) / 2
 		end
 
-		-- Знаходимо проміжні координати
-		local midQ = math.floor((startQ + targetQ) / 2 + 0.5)
-		local midR = math.floor((startR + targetR) / 2 + 0.5)
-
-		-- Перевіряємо тип проміжної ділянки
-		local midTileType = getTileTypeAt(midQ, midR)
-		if midTileType == "land" then
-			return true -- На шляху острів!
+		-- Функция для проверки, есть ли остров сверху
+		local function hasLandAboveWater(tileQ, tileR)
+			-- Ищем landTile с такими же координатами
+			for _, checkTile in ipairs(map:GetDescendants()) do
+				if checkTile:IsA("MeshPart") and checkTile:GetAttribute("IsLand") then
+					local checkQ = checkTile:GetAttribute("Q") or checkTile:GetAttribute("q")
+					local checkR = checkTile:GetAttribute("R") or checkTile:GetAttribute("r")
+					if checkQ == tileQ and checkR == tileR then
+						return true
+					end
+				end
+			end
+			return false
 		end
 
-		return false
-	end
-	local map = workspace:WaitForChild("Map")
-	for _, tile in ipairs(map:GetDescendants()) do
-		if tile:IsA("MeshPart") and tile:GetAttribute("Q") then
-			local tQ = tile:GetAttribute("Q")
-			local tR = tile:GetAttribute("R")
+		-- Функция для проверки доступности промежуточных клеток
+		local function checkIntermediatePaths(startQ, startR, endQ, endR)
+			local distance = getHexDistance(startQ, startR, endQ, endR)
 
-			-- Пропускаємо поточну позицію
-			if tQ == cQ and tR == cR then
+			if distance == 1 then
+				-- Для дистанции 1 не нужны промежуточные клетки
+				return true
+			elseif distance == 2 then
+				-- Для дистанции 2 ищем все возможные промежуточные пути
+				local directions = {
+					{ 1, 0 },
+					{ 1, -1 },
+					{ 0, -1 },
+					{ -1, 0 },
+					{ -1, 1 },
+					{ 0, 1 },
+				}
+
+				-- Проверяем все возможные промежуточные точки
+				for _, dir1 in ipairs(directions) do
+					local midQ = startQ + dir1[1]
+					local midR = startR + dir1[2]
+
+					-- Проверяем, что это соседняя клетка от старта
+					if getHexDistance(startQ, startR, midQ, midR) == 1 then
+						-- Проверяем, что это также соседняя клетка от цели
+						if getHexDistance(midQ, midR, endQ, endR) == 1 then
+							-- Проверяем, что промежуточная клетка - вода без острова
+							local interTileType = getTileTypeAt(midQ, midR)
+
+							if interTileType == "water" and not hasLandAboveWater(midQ, midR) then
+								-- Нашли доступный путь!
+								print(
+									"✅ Найден доступный путь через Q="
+										.. midQ
+										.. " R="
+										.. midR
+								)
+								return true
+							end
+						end
+					end
+				end
+
+				-- Не нашли ни одного доступного пути
+				return false
+			end
+
+			return false
+		end
+
+		-- Сначала собираем все тайлы на карте
+		local allTiles = {}
+		for _, obj in ipairs(map:GetDescendants()) do
+			if obj:IsA("MeshPart") and (obj:GetAttribute("Q") or obj:GetAttribute("q")) then
+				local tileQ = obj:GetAttribute("Q") or obj:GetAttribute("q")
+				local tileR = obj:GetAttribute("R") or obj:GetAttribute("r")
+
+				-- Пропускаем тайлы без координат
+				if tileQ == nil or tileR == nil then
+					continue
+				end
+
+				table.insert(allTiles, {
+					obj = obj,
+					q = tileQ,
+					r = tileR,
+					type = getTileType(obj),
+				})
+			end
+		end
+
+		print("🔍 Поиск доступных ходов для акулы из Q=" .. cQ .. " R=" .. cR)
+		print("📊 Всего тайлов на карте: " .. #allTiles)
+
+		-- Проверяем каждый тайл
+		for _, tile in ipairs(allTiles) do
+			-- Пропускаем текущую позицию
+			if tile.q == cQ and tile.r == cR then
 				continue
 			end
 
-			-- Обчислюємо дистанцію
-			local dq = tQ - cQ
-			local dr = tR - cR
-			local distance = (math.abs(dq) + math.abs(dr) + math.abs(dq + dr)) / 2
+			local distance = getHexDistance(cQ, cR, tile.q, tile.r)
 
-			if distance >= 1 and distance <= maxDistance then
-				local tileType = getTileType(tile)
-
-				local isValid = false
-
-				if cType == "Shark" then
-					-- Акула: тільки вода, не острів
-					if tileType == "water" then
-						-- ДОДАТКОВА ПЕРЕВІРКА: якщо distance = 2, перевіряємо чи немає острова на шляху
-						if distance == 2 then
-							if not hasLandOnPath(cQ, cR, tQ, tR) then
-								isValid = true
-							else
-								print(
-									"🚫 Не підсвічуємо Q="
-										.. tQ
-										.. " R="
-										.. tR
-										.. " - на шляху острів!"
-								)
-							end
-						else
-							isValid = true
-						end
-					end
-				elseif cType == "Kaiju" then
-					-- Кайдзю: може на землю та воду
-					-- Але не на активний вулкан
-					local isVolcanoActive = tile:GetAttribute("VolcanoActive")
-					if not (isVolcanoActive and tile:GetAttribute("IsBlocked")) then
-						-- Перевіряємо, чи немає там іншого кайдзю
-						local hasOtherKaiju = false
+			-- Проверяем дистанцию (1-2 клетки)
+			if distance >= 1 and distance <= 2 then
+				-- Должен быть водным тайлом
+				if tile.type == "water" then
+					-- Проверяем, нет ли острова сверху
+					if not hasLandAboveWater(tile.q, tile.r) then
+						-- Проверяем, нет ли другой акулы на этом тайле
+						local hasOtherShark = false
 						for _, obj in ipairs(workspace:GetChildren()) do
-							if obj:GetAttribute("IsKaiju") then
+							if obj:GetAttribute("IsShark") or obj:GetAttribute("CreatureType") == "Shark" then
 								local objQ = obj:GetAttribute("Q")
 								local objR = obj:GetAttribute("R")
-								if objQ == tQ and objR == tR and obj ~= creatureModel then
-									hasOtherKaiju = true
+								if objQ == tile.q and objR == tile.r and obj ~= creatureModel then
+									hasOtherShark = true
 									break
 								end
 							end
 						end
 
-						if not hasOtherKaiju then
-							-- ДОДАТКОВА ПЕРЕВІРКА для distance = 2
-							if distance == 2 then
-								if not hasLandOnPath(cQ, cR, tQ, tR) then
-									isValid = true
+						if not hasOtherShark then
+							-- Проверяем доступность пути
+							local isValid = checkIntermediatePaths(cQ, cR, tile.q, tile.r)
+
+							if isValid then
+								-- Подсвечиваем тайл
+								local hl = Instance.new("Highlight")
+								hl.Name = "CreatureMoveHighlight"
+
+								-- Разный цвет для разной дистанции
+								if distance == 1 then
+									hl.FillColor = Color3.fromRGB(0, 200, 0) -- Зеленый для 1 шага
+									hl.OutlineColor = Color3.fromRGB(0, 255, 0)
+								else
+									hl.FillColor = Color3.fromRGB(255, 150, 0) -- Оранжевый для 2 шагов
+									hl.OutlineColor = Color3.fromRGB(255, 200, 0)
 								end
+
+								hl.FillTransparency = 0.5
+								hl.OutlineTransparency = 0
+								hl.Parent = tile.obj
+
+								-- Добавляем Billboard с информацией
+								local billboard = Instance.new("BillboardGui")
+								billboard.Name = "SharkMoveCost"
+								billboard.Size = UDim2.new(2, 0, 2, 0)
+								billboard.StudsOffset = Vector3.new(0, 3, 0)
+								billboard.AlwaysOnTop = true
+								billboard.Adornee = tile.obj
+								billboard.Parent = tile.obj
+
+								local costLabel = Instance.new("TextLabel")
+								costLabel.Name = "CostLabel"
+								costLabel.Size = UDim2.new(1, 0, 1, 0)
+								costLabel.BackgroundTransparency = 1
+								costLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+								costLabel.Text = tostring(distance) .. " 🦈"
+								costLabel.Font = Enum.Font.GothamBlack
+								costLabel.TextScaled = true
+								costLabel.TextStrokeTransparency = 0
+								costLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+								costLabel.Parent = billboard
+
+								table.insert(tileHighlights, hl)
+								highlightedCount = highlightedCount + 1
+
+								print(
+									"✅ Подсвечено для акулы: Q="
+										.. tile.q
+										.. " R="
+										.. tile.r
+										.. " (дистанция: "
+										.. distance
+										.. ")"
+								)
 							else
-								isValid = true
+								print(
+									"❌ Тайл Q="
+										.. tile.q
+										.. " R="
+										.. tile.r
+										.. " недоступен (нет доступного пути)"
+								)
 							end
+						else
+							print(
+								"❌ Тайл Q="
+									.. tile.q
+									.. " R="
+									.. tile.r
+									.. " занят другой акулой"
+							)
 						end
+					else
+						print("❌ Тайл Q=" .. tile.q .. " R=" .. tile.r .. " имеет остров сверху")
 					end
-				elseif cType == "Octopus" then
-					-- Восьминіг: тільки вода, 1 крок
-					if tileType == "water" and distance == 1 then
-						isValid = true
+				else
+					print("❌ Тайл Q=" .. tile.q .. " R=" .. tile.r .. " не вода, тип: " .. tile.type)
+				end
+			end
+		end
+
+		print("📍 Подсвечено " .. highlightedCount .. " тайлов для акулы")
+	elseif cType == "Kaiju" then
+		highlightKaijuMoves(creatureModel)
+	elseif cType == "Octopus" then
+		-- Для восьминогой показываем только соседние водные клетки
+		local directions = {
+			{ 1, 0 },
+			{ 1, -1 },
+			{ 0, -1 },
+			{ -1, 0 },
+			{ -1, 1 },
+			{ 0, 1 },
+		}
+
+		for _, dir in ipairs(directions) do
+			local nq = cQ + dir[1]
+			local nr = cR + dir[2]
+
+			-- Проверяем тип тайла
+			local tileType = getTileTypeAt(nq, nr)
+
+			-- Восьминогой может ходить только на воду
+			if tileType == "water" then
+				-- Находим тайл для подсветки
+				local tile = nil
+				local map = workspace:WaitForChild("Map")
+				for _, obj in ipairs(map:GetDescendants()) do
+					if obj:IsA("MeshPart") then
+						local tileQ = obj:GetAttribute("Q") or obj:GetAttribute("q")
+						local tileR = obj:GetAttribute("R") or obj:GetAttribute("r")
+						if tileQ == nq and tileR == nr then
+							tile = obj
+							break
+						end
 					end
 				end
 
-				if isValid then
+				if tile then
 					local hl = Instance.new("Highlight")
 					hl.Name = "CreatureMoveHighlight"
-
-					-- Різний колір залежно від дистанції
-					if distance == 1 then
-						hl.FillColor = Color3.fromRGB(0, 200, 0) -- Зелений для 1 кроку
-					else
-						hl.FillColor = Color3.fromRGB(255, 150, 0) -- Помаранчевий для 2 кроків
-					end
-
-					hl.OutlineColor = Color3.fromRGB(255, 255, 0)
+					hl.FillColor = Color3.fromRGB(255, 50, 50) -- Красный для восьминогой
+					hl.OutlineColor = Color3.fromRGB(255, 100, 100)
+					hl.FillTransparency = 0.5
+					hl.OutlineTransparency = 0
 					hl.Parent = tile
-					table.insert(tileHighlights, hl)
 
-					print(
-						"✅ Підсвічено для "
-							.. cType
-							.. ": Q="
-							.. tQ
-							.. " R="
-							.. tR
-							.. " (distance: "
-							.. distance
-							.. ", type: "
-							.. tileType
-							.. ")"
-					)
-				else
-					if tileType == "land" then
-						print("🚫 Не підсвічуємо Q=" .. tQ .. " R=" .. tR .. " - це острів!")
-					end
+					table.insert(tileHighlights, hl)
 				end
 			end
 		end
@@ -2935,6 +3368,96 @@ UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
 		else
 			print("⚠️ [КЛІЄНТ] Човен для видалення не знайдений")
 		end
+	elseif data.type == "explorer_pushed_by_kaiju" then
+		print(
+			"👤 Дослідник відштовхнутий кайдзю: ID="
+				.. data.explorerId
+				.. " з Q="
+				.. data.fromQ
+				.. " R="
+				.. data.fromR
+				.. " на Q="
+				.. data.toQ
+				.. " R="
+				.. data.toR
+		)
+
+		-- Находим исследователя в workspace
+		local explorerModel = nil
+		for _, obj in ipairs(workspace:GetChildren()) do
+			if obj:GetAttribute("IsExplorer") and obj:GetAttribute("ExplorerId") == data.explorerId then
+				explorerModel = obj
+				break
+			end
+		end
+
+		if explorerModel then
+			-- Очищаем эффекты човна если есть
+			clearBoatAttributes(explorerModel)
+
+			-- Обновляем атрибуты
+			explorerModel:SetAttribute("Q", data.toQ)
+			explorerModel:SetAttribute("R", data.toR)
+
+			-- Проверяем, вода ли это
+			local tileType = getTileTypeAt(data.toQ, data.toR)
+			local isWater = (tileType == "water")
+			explorerModel:SetAttribute("IsOnWater", isWater)
+
+			-- Если это вода, проверяем есть ли човен
+			local boat = getBoatOnTile(data.toQ, data.toR)
+			if boat and isWater then
+				-- Дослідник може опинитись на човні
+				local boatId = boat:GetAttribute("BoatId")
+				if boatId then
+					-- Перевіряємо, чи є місце на човні
+					if hasSpaceOnBoat(boatId) then
+						updateExplorerPositionOnBoat(explorerModel, data.toQ, data.toR, boatId)
+						print(
+							"🚤 Дослідник опинився на човні після відштовхування"
+						)
+					else
+						-- Човен заповнений - дослідник у воді
+						updateExplorerPosition(explorerModel, data.toQ, data.toR)
+						print("💧 Дослідник у воді (човен заповнений)")
+					end
+				else
+					updateExplorerPosition(explorerModel, data.toQ, data.toR)
+					print("💧 Дослідник у воді")
+				end
+			else
+				-- Звичайне переміщення на сушу
+				updateExplorerPosition(explorerModel, data.toQ, data.toR)
+				print("📍 Дослідник на суші")
+			end
+
+			-- Додаємо візуальний ефект для відштовхування
+			local pushEffect = explorerModel:FindFirstChild("PushEffect")
+			if not pushEffect then
+				pushEffect = Instance.new("ParticleEmitter")
+				pushEffect.Name = "PushEffect"
+				pushEffect.Color = ColorSequence.new(Color3.fromRGB(255, 100, 100))
+				pushEffect.Size = NumberSequence.new(0.5)
+				pushEffect.Transparency = NumberSequence.new(0.7)
+				pushEffect.Lifetime = NumberRange.new(1, 2)
+				pushEffect.Rate = 30
+				pushEffect.Speed = NumberRange.new(3, 5)
+				pushEffect.VelocitySpread = 180
+				pushEffect.Parent = explorerModel.PrimaryPart
+
+				-- Видаляємо через 2 секунди
+				game:GetService("Debris"):AddItem(pushEffect, 2)
+			end
+
+			print(
+				"✅ Візуально оновлено позицію дослідника після відштовхування"
+			)
+
+			-- Якщо цей дослідник був обраний, оновлюємо UI
+			if selectedExplorer and selectedExplorer:GetAttribute("ExplorerId") == data.explorerId then
+				updateSelectionUI(explorerModel)
+			end
+		end
 	elseif data.type == "explorer_removed_by_effect" then
 		print(
 			"👤 [КЛІЄНТ] Отримано команду на видалення дослідника #",
@@ -3190,7 +3713,7 @@ GameStartEvent.OnClientEvent:Connect(function(data)
 		isCreaturePhase = true
 		currentCreatureTurn = data.rolledCreature
 
-		-- Якщо це наш хід і є істоти
+		-- Якщо це наш хід і є іс��оти
 		if data.currentPlayer == player.Name and data.creaturesCount > 0 then
 			instructionLabel.Text = "ВАШ ХІД! Оберіть істоту."
 			isMyTurn = true

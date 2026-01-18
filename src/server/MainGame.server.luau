@@ -791,6 +791,86 @@ function AtlantisGame:returnToMainGameAfterFlood()
 	self:startPlayerTurn()
 end
 
+function AtlantisGame:updateExplorerPosition(explorerId, playerName, newQ, newR)
+	print(
+		"🔄 Оновлення позиції дослідника "
+			.. explorerId
+			.. " гравця "
+			.. playerName
+			.. " на Q="
+			.. newQ
+			.. " R="
+			.. newR
+	)
+
+	-- Находим игрока
+	local targetPlayer = nil
+	for player, playerData in pairs(self.players) do
+		if player.Name == playerName then
+			targetPlayer = player
+			break
+		end
+	end
+
+	if not targetPlayer then
+		print("❌ Гравець не знайдений: " .. playerName)
+		return false
+	end
+
+	local playerData = self.players[targetPlayer]
+	local explorerUpdated = false
+
+	-- Обновляем позицию в данных игрока
+	if playerData.explorers then
+		for _, explorer in ipairs(playerData.explorers) do
+			if explorer.id == explorerId then
+				-- Сохраняем старые координаты для логов
+				local oldQ = explorer.q
+				local oldR = explorer.r
+
+				-- Обновляем координаты
+				explorer.q = newQ
+				explorer.r = newR
+
+				-- Проверяем, вода ли это
+				local tile = self.mapManager:getTileAtPosition(newQ, newR)
+				if tile then
+					explorer.isOnWater = tile.isWater or false
+				end
+
+				explorerUpdated = true
+				print(
+					"✅ Оновлено позицію дослідника в даних: "
+						.. oldQ
+						.. ","
+						.. oldR
+						.. " → "
+						.. newQ
+						.. ","
+						.. newR
+				)
+				break
+			end
+		end
+	end
+
+	if not explorerUpdated then
+		print("❌ Дослідник не знайдений в даних гравця")
+		return false
+	end
+
+	-- Отправляем обновление всем клиентам
+	self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
+		type = "explorer_position_updated",
+		explorerId = explorerId,
+		playerName = playerName,
+		q = newQ,
+		r = newR,
+	})
+
+	return true
+end
+
 function AtlantisGame:startPlayerTurn()
 	local currentPlayer = self.turnManager:getCurrentPlayer()
 	local turnInfo = self.turnManager:getTurnInfo()

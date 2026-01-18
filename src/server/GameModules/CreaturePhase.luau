@@ -69,7 +69,7 @@ function CreaturePhase:handleCreatureMove(player, creatureModel, q, r)
 		return
 	end
 
-	-- 1. СИНХРОНІЗАЦІЯ (на всяк випадок)
+	-- 1. СИНХРОНИЗАЦИЯ
 	local cType = creatureModel:GetAttribute("CreatureType")
 	if not cType then
 		if creatureModel:GetAttribute("IsShark") then
@@ -81,7 +81,6 @@ function CreaturePhase:handleCreatureMove(player, creatureModel, q, r)
 		if creatureModel:GetAttribute("IsOctopus") then
 			cType = "Octopus"
 		end
-
 		if cType then
 			creatureModel:SetAttribute("CreatureType", cType)
 		else
@@ -95,7 +94,9 @@ function CreaturePhase:handleCreatureMove(player, creatureModel, q, r)
 	end
 
 	local success = false
+
 	if cType == "Shark" then
+		-- Проверяем ход напрямую в moveShark
 		success = self:moveShark(creatureModel, q, r)
 	elseif cType == "Kaiju" then
 		success = self:moveKaiju(creatureModel, q, r)
@@ -113,84 +114,129 @@ function CreaturePhase:moveShark(shark, q, r)
 	local startQ = shark:GetAttribute("Q")
 	local startR = shark:GetAttribute("R")
 
+	-- Акула может ходить на 1-2 клетки
 	local distance = self:getHexDistance(startQ, startR, q, r)
 	if distance > 2 or distance < 1 then
 		print("❌ Акула може рухатися лише на 1-2 ділянки")
 		return false
 	end
 
+	-- Получаем тайл
 	local tile = self.mainGame.mapManager:getTileAtPosition(q, r)
 	if not tile then
 		print("❌ Тайл не існує")
 		return false
 	end
 
-	-- Акула може тільки на ВОДУ
+	-- Проверяем, что это водный тайл
 	if not tile.isWater then
 		print("❌ Акула може рухатися тільки на водні ділянки")
 		return false
 	end
 
-	-- Перевіряємо проміжні ділянки (якщо distance = 2)
-	if distance == 2 then
-		local intermediate = self:getIntermediateHex(startQ, startR, q, r)
-		if intermediate then
-			local interTile = self.mainGame.mapManager:getTileAtPosition(intermediate.q, intermediate.r)
+	-- Проверяем, что сверху нет острова на ЦЕЛЕВОМ тайле
+	if self:hasLandAboveWater(q, r) then
+		print("❌ На цьому водному тайлі є острів!")
+		return false
+	end
 
-			-- Проміжна ділянка має бути ВОДОЮ та не бути островом
-			if not interTile or not interTile.isWater then
-				print("❌ Проміжна ділянка не водна")
-				return false
-			end
+	-- Проверяем, нет ли на этом тайле другой акулы
+	local otherShark = self:getCreatureAt(q, r, "Shark")
+	if otherShark and otherShark ~= shark then
+		print("❌ На цьому тайлі вже є акула!")
+		return false
+	end
 
-			-- ДОДАТКОВА ПЕРЕВІРКА: чи не є проміжна ділянка островом
-			-- (Це може статися, якщо острів ще не затоплений)
-			if interTile.meshPart and interTile.meshPart:GetAttribute("IsLand") then
-				print(
-					"❌ Проміжна ділянка - острів! Q="
-						.. intermediate.q
-						.. " R="
-						.. intermediate.r
-				)
-				return false
+	-- ДОДАНО: Проверяем доступные пути (особенно для дистанции 2)
+	local isValidMove = false
+
+	if distance == 1 then
+		-- Для дистанции 1 не нужны промежуточные проверки
+		isValidMove = true
+	elseif distance == 2 then
+		-- Для дистанции 2 ищем хотя бы один доступный путь
+		local directions = {
+			{ 1, 0 },
+			{ 1, -1 },
+			{ 0, -1 },
+			{ -1, 0 },
+			{ -1, 1 },
+			{ 0, 1 },
+		}
+
+		-- Проверяем все возможные промежуточные точки
+		for _, dir1 in ipairs(directions) do
+			local midQ = startQ + dir1[1]
+			local midR = startR + dir1[2]
+
+			-- Проверяем, что это соседняя клетка от старта
+			if self:getHexDistance(startQ, startR, midQ, midR) == 1 then
+				-- Проверяем, что это также соседняя клетка от цели
+				if self:getHexDistance(midQ, midR, q, r) == 1 then
+					-- Проверяем, что промежуточная клетка - вода без острова
+					local interTile = self.mainGame.mapManager:getTileAtPosition(midQ, midR)
+
+					if interTile and interTile.isWater then
+						if not self:hasLandAboveWater(midQ, midR) then
+							-- Нашли доступный путь!
+							print(
+								"✅ Знайдено доступний шлях через Q="
+									.. midQ
+									.. " R="
+									.. midR
+							)
+							isValidMove = true
+							break
+						end
+					end
+				end
 			end
+		end
+
+		if not isValidMove then
+			print("❌ Не знайдено доступного шляху для акули")
+			return false
 		end
 	end
 
+	-- Перемещаем акулу
 	self:updateCreaturePosition(shark, q, r)
 
+	-- Логика поедания исследователей
 	local eatenCount = 0
 
-	-- 1. Отримуємо дослідників на цьому тайлі
+	-- 1. Получаем исследователей на этом тайле
 	local explorersData = self.mainGame:getExplorersOnTile(q, r)
 	for _, exp in ipairs(explorersData) do
 		if not exp.isOnBoat then
 			print("🦈 Акула їсть (дані) ID:", exp.explorerId)
 
-			-- 2. Видаляємо з даних MainGame
+			-- 2. Удаляем из данных MainGame
 			self.mainGame:removeExplorer(exp.explorerId, exp.playerName)
 
-			-- 3. Видаляємо візуальний об'єкт
+			-- 3. Удаляем визуальный объект
 			if exp.model then
 				exp.model:Destroy()
 			end
 
-			-- 4. Сповіщаємо клієнтів
+			-- 4. Уведомляем клиентов
 			self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
 				type = "explorer_removed_by_effect",
 				explorerId = exp.explorerId,
 				reason = "shark",
 			})
+
 			eatenCount = eatenCount + 1
 		end
 	end
 
-	-- 5. Додатково очищуємо інші візуальні об'єкти (якщо щось залишилося)
+	-- 5. Дополнительно очищаем другие визуальные объекты
 	for _, obj in ipairs(workspace:GetChildren()) do
 		if obj:GetAttribute("IsExplorer") then
 			local objQ = obj:GetAttribute("Q")
 			local objR = obj:GetAttribute("R")
 			local isOnBoat = obj:GetAttribute("OnBoat") == true
+
 			if objQ == q and objR == r and not isOnBoat then
 				print("🦈 Акула знищує візуальний об'єкт", obj.Name)
 				obj:Destroy()
@@ -284,75 +330,197 @@ function CreaturePhase:moveKaiju(kaiju, q, r)
 	local startQ = kaiju:GetAttribute("Q")
 	local startR = kaiju:GetAttribute("R")
 
+	print("🦖 Спроба ходу кайдзю з Q=" .. startQ .. " R=" .. startR .. " на Q=" .. q .. " R=" .. r)
+
+	-- Кайдзю может ходить на 1-2 клетки
 	local distance = self:getHexDistance(startQ, startR, q, r)
+	print("📏 Дистанція: " .. distance)
+
 	if distance > 2 or distance < 1 then
 		print("❌ Кайдзю може рухатися лише на 1-2 ділянки")
 		return false
 	end
 
+	-- Получаем тайл
 	local tile = self.mainGame.mapManager:getTileAtPosition(q, r)
 	if not tile then
 		print("❌ Тайл не існує")
 		return false
 	end
 
-	-- Перевіряємо, чи на цій ділянці вже є кайдзю
+	print(
+		"📊 Цільовий тайл: isWater="
+			.. tostring(tile.isWater)
+			.. ", isVolcanoActive="
+			.. tostring(tile.isVolcanoActive)
+	)
+
+	-- Кайдзю НЕ может ходить на активный вулкан
+	if tile.isVolcanoActive and tile.isBlocked then
+		print("❌ Кайдзю не може ходити на активний вулкан!")
+		return false
+	end
+
+	-- Проверяем, нет ли на этом тайле другого кайдзю (кроме себя)
 	local otherKaiju = self:getCreatureAt(q, r, "Kaiju")
 	if otherKaiju and otherKaiju ~= kaiju then
+		print("❌ На цьому тайлі вже є кайдзю! Витісняємо...")
 		-- Витісняємо іншого кайдзю
 		self:pushCreatureToNeighbor(otherKaiju, q, r)
 	end
 
-	-- Перевіряємо проміжні ділянки (якщо distance = 2)
-	if distance == 2 then
-		local intermediate = self:getIntermediateHex(startQ, startR, q, r)
-		if intermediate then
-			local interTile = self.mainGame.mapManager:getTileAtPosition(intermediate.q, intermediate.r)
-			if not interTile then
-				print("❌ Проміжна ділянка не існує")
-				return false
+	-- ДОДАНО: Проверяем доступные пути (особенно для дистанции 2)
+	local isValidMove = false
+
+	if distance == 1 then
+		-- Для дистанции 1 не нужны промежуточные проверки
+		isValidMove = true
+	elseif distance == 2 then
+		-- Для дистанции 2 ищем хотя бы один доступный путь
+		local directions = {
+			{ 1, 0 },
+			{ 1, -1 },
+			{ 0, -1 },
+			{ -1, 0 },
+			{ -1, 1 },
+			{ 0, 1 },
+		}
+
+		-- Проверяем все возможные промежуточные точки
+		for _, dir1 in ipairs(directions) do
+			local midQ = startQ + dir1[1]
+			local midR = startR + dir1[2]
+
+			-- Проверяем, что это соседняя клетка от старта
+			if self:getHexDistance(startQ, startR, midQ, midR) == 1 then
+				-- Проверяем, что это также соседняя клетка от цели
+				if self:getHexDistance(midQ, midR, q, r) == 1 then
+					-- Проверяем, что промежуточная клетка не активный вулкан
+					local interTile = self.mainGame.mapManager:getTileAtPosition(midQ, midR)
+
+					if interTile and not (interTile.isVolcanoActive and interTile.isBlocked) then
+						-- Нашли доступный путь!
+						print("✅ Знайдено доступний шлях через Q=" .. midQ .. " R=" .. midR)
+						isValidMove = true
+						break
+					else
+						print(
+							"❌ Проміжний тайл Q="
+								.. midQ
+								.. " R="
+								.. midR
+								.. " - активний вулкан або не існує"
+						)
+					end
+				end
 			end
-			-- Проміжна ділянка не повинна бути активним вулканом
-			if interTile.isVolcanoActive and interTile.isBlocked then
-				print("❌ Проміжна ділянка — активний вулкан")
-				return false
-			end
+		end
+
+		if not isValidMove then
+			print("❌ Не знайдено доступного шляху для кайдзю")
+			return false
 		end
 	end
 
-	-- Цільова ділянка не повинна бути активним вулканом
-	if tile.isVolcanoActive and tile.isBlocked then
-		print("❌ Цільова ділянка — активний вулкан")
-		return false
-	end
-
+	-- Перемещаем кайдзю
 	self:updateCreaturePosition(kaiju, q, r)
 
 	-- Знищує човни
 	local boat = self.mainGame:getBoatAtPosition(q, r)
 	if boat then
-		print("🦖 Кайдзю розтрощив човен!")
+		print("🦖 Кайдзю розтрощив човен #" .. (boat:GetAttribute("BoatId") or "?"))
 		self.mainGame:removeBoat(boat)
 	end
 
 	-- Відштовхує шукачів
 	local explorers = self.mainGame:getExplorersOnTile(q, r)
+	print("🔍 Знайдено дослідників на тайлі: " .. #explorers)
+
 	for _, exp in ipairs(explorers) do
-		self:pushExplorerToNeighbor(exp, q, r)
+		-- Создаем правильный объект исследователя для функции pushExplorerToNeighbor
+		local explorerObj = {
+			explorerId = exp.explorerId,
+			playerName = exp.playerName,
+			q = exp.q or q,
+			r = exp.r or r,
+		}
+		self:pushExplorerToNeighbor(explorerObj, q, r)
 	end
 
-	-- Витісняє монстрів
+	-- Витісняє інших монстрів
 	local shark = self:getCreatureAt(q, r, "Shark")
 	if shark then
+		print("🦖 Витісняє акулу з Q=" .. q .. " R=" .. r)
 		self:pushCreatureToNeighbor(shark, q, r)
 	end
 
 	local octopus = self:getCreatureAt(q, r, "Octopus")
 	if octopus then
+		print("🦖 Витісняє восьминога з Q=" .. q .. " R=" .. r)
 		self:pushCreatureToNeighbor(octopus, q, r)
 	end
 
+	-- Додаємо ефект для кайдзю (можна додати анімацію чи звук)
+	self.networkManager:getGameStartEvent():FireAllClients({
+		phase = "creature_action",
+		message = "🦖 Кайдзю пройшов! Знищено човенів: " .. (boat and 1 or 0),
+	})
+
 	return true
+end
+
+function CreaturePhase:getAvailableKaijuMoves(kaiju)
+	local availableMoves = {}
+	local q = kaiju:GetAttribute("Q")
+	local r = kaiju:GetAttribute("R")
+
+	-- Получаем все тайлы на карте
+	local allTiles = self.mainGame.mapManager:getAllTiles()
+
+	for _, tileData in pairs(allTiles) do
+		local distance = self:getHexDistance(q, r, tileData.q, tileData.r)
+
+		-- Проверяем дистанцию (1-2 клетки)
+		if distance >= 1 and distance <= 2 then
+			-- Не может ходить на активный вулкан
+			if not (tileData.isVolcanoActive and tileData.isBlocked) then
+				-- Проверяем, нет ли другого кайдзю на этом тайле (кроме себя)
+				local otherKaiju = self:getCreatureAt(tileData.q, tileData.r, "Kaiju")
+				if not otherKaiju or (tileData.q == q and tileData.r == r) then
+					-- Если дистанция = 2, проверяем промежуточную клетку
+					local isValid = true
+
+					if distance == 2 then
+						local intermediate = self:getIntermediateHex(q, r, tileData.q, tileData.r)
+
+						if intermediate then
+							-- Промежуточная клетка не должна быть активным вулканом
+							local interTile = self.mainGame.mapManager:getTileAtPosition(intermediate.q, intermediate.r)
+							if not interTile or (interTile.isVolcanoActive and interTile.isBlocked) then
+								isValid = false
+							end
+						else
+							isValid = false
+						end
+					end
+
+					if isValid then
+						table.insert(availableMoves, {
+							q = tileData.q,
+							r = tileData.r,
+							distance = distance,
+							isWater = tileData.isWater,
+							isLand = not tileData.isWater,
+							isVolcano = tileData.isVolcano,
+							isVolcanoActive = tileData.isVolcanoActive,
+						})
+					end
+				end
+			end
+		end
+	end
+
+	return availableMoves
 end
 
 function CreaturePhase:getHexDistance(q1, r1, q2, r2)
@@ -454,17 +622,84 @@ function CreaturePhase:getAvailableTilesForCreature(creature, maxDistance)
 end
 
 function CreaturePhase:hasLandAboveWater(q, r)
-	-- Шукаємо землю на цих координатах
-	local allTiles = self.mainGame.mapManager:getAllTiles()
-	local coordKey = self.mainGame.mapManager:getCoordKey(q, r)
+	-- Получаем тайл через MapManager
+	local tile = self.mainGame.mapManager:getTileAtPosition(q, r)
 
-	-- Якщо в landTiles є запис - це земля
-	if allTiles[coordKey] then
-		local tile = allTiles[coordKey]
-		return not tile.isWater -- Повертає true якщо це земля
+	if not tile then
+		return false
+	end
+
+	-- Если tile.isWater == false, значит это земля
+	if not tile.isWater then
+		return true
+	end
+
+	-- Дополнительная проверка через атрибуты meshPart
+	if tile.meshPart then
+		local isLand = tile.meshPart:GetAttribute("IsLand")
+		if isLand == true then
+			return true
+		end
 	end
 
 	return false
+end
+
+function CreaturePhase:getAvailableSharkMoves(shark)
+	local availableMoves = {}
+	local q = shark:GetAttribute("Q")
+	local r = shark:GetAttribute("R")
+
+	-- Получаем все тайлы на карте
+	local allTiles = self.mainGame.mapManager:getAllTiles()
+
+	for _, tileData in pairs(allTiles) do
+		local distance = self:getHexDistance(q, r, tileData.q, tileData.r)
+
+		-- Проверяем дистанцию (1-2 клетки)
+		if distance >= 1 and distance <= 2 then
+			-- Должен быть водным тайлом
+			if tileData.isWater then
+				-- Проверяем, нет ли сверху острова
+				if not self:hasLandAboveWater(tileData.q, tileData.r) then
+					-- Проверяем, нет ли другой акулы
+					local otherShark = self:getCreatureAt(tileData.q, tileData.r, "Shark")
+					if not otherShark then
+						-- Если дистанция = 2, проверяем промежуточную клетку
+						local isValid = true
+
+						if distance == 2 then
+							local intermediate = self:getIntermediateHex(q, r, tileData.q, tileData.r)
+							if intermediate then
+								-- Промежуточная клетка должна быть водой без острова
+								local interTile =
+									self.mainGame.mapManager:getTileAtPosition(intermediate.q, intermediate.r)
+								if not interTile or not interTile.isWater then
+									isValid = false
+								elseif self:hasLandAboveWater(intermediate.q, intermediate.r) then
+									isValid = false
+								end
+							else
+								isValid = false
+							end
+						end
+
+						if isValid then
+							table.insert(availableMoves, {
+								q = tileData.q,
+								r = tileData.r,
+								distance = distance,
+								tileType = "water",
+								isWater = true,
+							})
+						end
+					end
+				end
+			end
+		end
+	end
+
+	return availableMoves
 end
 
 function CreaturePhase:hasLandBetween(q1, r1, q2, r2)
@@ -491,30 +726,90 @@ end
 
 function CreaturePhase:pushExplorerToNeighbor(explorerObj, currentQ, currentR)
 	local neighbors = self.mainGame.mapManager:getNeighbors(currentQ, currentR)
-	local target = neighbors[math.random(1, #neighbors)]
+	local validTargets = {}
 
-	if target then
-		-- Примусово оновлюємо дані на сервері
-		if explorerObj.model then
-			explorerObj.model:SetAttribute("Q", target.q)
-			explorerObj.model:SetAttribute("R", target.r)
+	-- Собираем все доступные соседние клетки
+	for _, neighbor in ipairs(neighbors) do
+		local tile = self.mainGame.mapManager:getTileAtPosition(neighbor.q, neighbor.r)
+		if tile then
+			-- Проверяем, что клетка существует и доступна
+			table.insert(validTargets, neighbor)
+		end
+	end
 
-			-- Перевіряємо воду
-			local tile = self.mainGame.mapManager:getTileAtPosition(target.q, target.r)
-			local isWater = false
-			if tile and (tile.isWater or tile.meshPart:GetAttribute("IsWater")) then
-				isWater = true
+	if #validTargets > 0 then
+		-- Выбираем случайную соседнюю клетку
+		local target = validTargets[math.random(1, #validTargets)]
+
+		print("🦖 Кайдзю відштовхує дослідника до Q=" .. target.q .. " R=" .. target.r)
+
+		-- ВИПРАВЛЕНО: Находим исследователя в данных игрока и обновляем его позицию
+		local explorerFound = false
+
+		-- Ищем исследователя во всех данных игроков
+		for player, playerData in pairs(self.mainGame.players) do
+			if playerData.explorers then
+				for _, explorer in ipairs(playerData.explorers) do
+					-- Проверяем, что это тот же исследователь
+					if explorer.id == explorerObj.explorerId and explorer.q == currentQ and explorer.r == currentR then
+						-- Обновляем позицию в данных
+						explorer.q = target.q
+						explorer.r = target.r
+
+						-- Проверяем, вода ли это
+						local tile = self.mainGame.mapManager:getTileAtPosition(target.q, target.r)
+						if tile then
+							explorer.isOnWater = tile.isWater or false
+						end
+
+						explorerFound = true
+						print(
+							"✅ Оновлено позицію дослідника в даних гравця "
+								.. player.Name
+						)
+						break
+					end
+				end
 			end
-			explorerObj.model:SetAttribute("IsOnWater", isWater)
+			if explorerFound then
+				break
+			end
 		end
 
+		-- Также обновляем визуальный объект если он существует
+		for _, obj in ipairs(workspace:GetChildren()) do
+			if obj:GetAttribute("IsExplorer") and obj:GetAttribute("ExplorerId") == explorerObj.explorerId then
+				-- Обновляем атрибуты объекта
+				obj:SetAttribute("Q", target.q)
+				obj:SetAttribute("R", target.r)
+
+				-- Обновляем атрибут IsOnWater
+				local tile = self.mainGame.mapManager:getTileAtPosition(target.q, target.r)
+				if tile then
+					obj:SetAttribute("IsOnWater", tile.isWater or false)
+				end
+
+				print("✅ Оновлено атрибути візуального об'єкта дослідника")
+				break
+			end
+		end
+
+		-- Отправляем уведомление всем клиентам
 		self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
-			type = "explorer_moved_by_flood",
+			type = "explorer_pushed_by_kaiju",
 			explorerId = explorerObj.explorerId,
+			fromQ = currentQ,
+			fromR = currentR,
 			toQ = target.q,
 			toR = target.r,
+			playerName = explorerObj.playerName or "Unknown",
 		})
+
+		return target
 	end
+
+	print("❌ Немає доступних сусідніх клітин для відштовхування")
+	return nil
 end
 
 function CreaturePhase:pushCreatureToNeighbor(creatureObj, currentQ, currentR)
