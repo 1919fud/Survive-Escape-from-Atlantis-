@@ -990,6 +990,7 @@ local function highlightAvailableTiles(data)
 
 	-- Для воды специальные цвета
 	local waterColor = Color3.fromRGB(0, 150, 255) -- Синий для воды
+	local creatureColor = Color3.fromRGB(255, 50, 50)
 
 	for _, tileData in ipairs(data.availableTiles) do
 		local tile = tileData.tile and tileData.tile.meshPart
@@ -999,8 +1000,34 @@ local function highlightAvailableTiles(data)
 
 			local cost = tileData.cost or 1
 			local isWater = tileData.isWater or false
+			local hasCreature = tileData.hasCreature or false
+			if hasCreature then
+				highlight.FillColor = creatureColor
+				highlight.OutlineColor = Color3.fromRGB(200, 0, 0)
+				highlight.FillTransparency = 0.4
+				highlight.OutlineTransparency = 0
 
-			if isWater then
+				-- Додаємо спеціальний текст для тайлів з істотами
+				local billboard = Instance.new("BillboardGui")
+				billboard.Name = "CreatureWarning"
+				billboard.Size = UDim2.new(2, 0, 2, 0)
+				billboard.StudsOffset = Vector3.new(0, 3, 0)
+				billboard.AlwaysOnTop = true
+				billboard.Adornee = tile
+				billboard.Parent = tile
+
+				local warningLabel = Instance.new("TextLabel")
+				warningLabel.Name = "WarningLabel"
+				warningLabel.Size = UDim2.new(1, 0, 1, 0)
+				warningLabel.BackgroundTransparency = 1
+				warningLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
+				warningLabel.Text = "🦈" -- Іконка акули
+				warningLabel.Font = Enum.Font.GothamBlack
+				warningLabel.TextScaled = true
+				warningLabel.TextStrokeTransparency = 0
+				warningLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+				warningLabel.Parent = billboard
+			elseif isWater then
 				-- Водні тайли сині з спеціальним ефектом
 				highlight.FillColor = waterColor
 				highlight.OutlineColor = Color3.fromRGB(0, 100, 200)
@@ -1023,41 +1050,42 @@ local function highlightAvailableTiles(data)
 				highlight.FillTransparency = 0.7
 				highlight.OutlineTransparency = 0
 			end
+			if not hasCreature then
+				-- Додаємо BillboardGui з інформацією про вартість
+				local billboard = Instance.new("BillboardGui")
+				billboard.Name = "CostDisplay"
+				billboard.Size = UDim2.new(2, 0, 2, 0)
+				billboard.StudsOffset = Vector3.new(0, 3, 0)
+				billboard.AlwaysOnTop = true
+				billboard.Adornee = tile
+				billboard.Parent = tile
 
-			-- Додаємо BillboardGui з інформацією про вартість
-			local billboard = Instance.new("BillboardGui")
-			billboard.Name = "CostDisplay"
-			billboard.Size = UDim2.new(2, 0, 2, 0)
-			billboard.StudsOffset = Vector3.new(0, 3, 0)
-			billboard.AlwaysOnTop = true
-			billboard.Adornee = tile
-			billboard.Parent = tile
+				local costLabel = Instance.new("TextLabel")
+				costLabel.Name = "CostLabel"
+				costLabel.Size = UDim2.new(1, 0, 1, 0)
+				costLabel.BackgroundTransparency = 1
+				costLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+				costLabel.Text = tostring(cost)
 
-			local costLabel = Instance.new("TextLabel")
-			costLabel.Name = "CostLabel"
-			costLabel.Size = UDim2.new(1, 0, 1, 0)
-			costLabel.BackgroundTransparency = 1
-			costLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-			costLabel.Text = tostring(cost)
+				if isWater then
+					costLabel.Text = cost .. " 💧" -- Іконка воды
+					costLabel.TextColor3 = Color3.fromRGB(150, 220, 255)
+					costLabel.Font = Enum.Font.GothamBlack
+				else
+					costLabel.Font = Enum.Font.GothamBold
+				end
 
-			if isWater then
-				costLabel.Text = cost .. " 💧" -- Іконка воды
-				costLabel.TextColor3 = Color3.fromRGB(150, 220, 255)
-				costLabel.Font = Enum.Font.GothamBlack
-			else
-				costLabel.Font = Enum.Font.GothamBold
+				costLabel.TextScaled = true
+				costLabel.TextStrokeTransparency = 0
+				costLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+				costLabel.Parent = billboard
 			end
-
-			costLabel.TextScaled = true
-			costLabel.TextStrokeTransparency = 0
-			costLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-			costLabel.Parent = billboard
-
 			-- Зберігаємо інформацію про вартість
 			highlight:SetAttribute("Cost", cost)
 			highlight:SetAttribute("Q", tileData.q)
 			highlight:SetAttribute("R", tileData.r)
 			highlight:SetAttribute("IsWater", isWater)
+			highlight:SetAttribute("HasCreature", hasCreature)
 
 			highlight.Parent = tile
 			table.insert(tileHighlights, highlight)
@@ -1220,6 +1248,26 @@ end
 local function moveExplorerToTile(tileData)
 	if not selectedExplorer or not isMovementMode or not isMyTurn then
 		print("❌ Немає обраного дослідника або не режим переміщення")
+		return
+	end
+
+	if tileData.hasCreature then
+		print("❌ Не можна переміститися на тайл з істотою!")
+
+		-- Показуємо повідомлення гравцеві
+		if infoLabel then
+			infoLabel.Text =
+				"❌ НЕ МОЖНА: На цьому тайлі є істота!\nОберіть інший тайл."
+			infoLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+
+			task.delay(2, function()
+				if infoLabel then
+					infoLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+					infoLabel.Text = "Оберіть доступний тайл для переміщення"
+				end
+			end)
+		end
+
 		return
 	end
 

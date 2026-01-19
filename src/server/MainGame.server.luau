@@ -354,49 +354,62 @@ function AtlantisGame:getAvailableMovementTiles(explorer, maxSteps)
 						"є АКТИВНИМ вулканом - пропускаємо"
 					)
 				else
-					-- Визначаємо тип тайла
-					local isWaterTile = tile.isWater or tile.type == "Water"
-					local isLandTile = not isWaterTile
+					-- НОВА ПЕРЕВІРКА: Чи немає на цьому тайлі істоти (акули, кайдзю, восьминога)
+					local hasCreature = self:hasCreatureOnTile(current.q, current.r)
 
-					-- ДОДАНО: Перевірка, чи це човен і чи він заповнений
-					local isBoatTile = self:hasBoatOnTile(current.q, current.r)
-					local canEnterTile = true
-					local boatId = nil
+					if hasCreature then
+						print(
+							"🦈 Тайл Q=",
+							current.q,
+							"R=",
+							current.r,
+							"зайнято істотою - пропускаємо"
+						)
+					else
+						-- Визначаємо тип тайла
+						local isWaterTile = tile.isWater or tile.type == "Water"
+						local isLandTile = not isWaterTile
 
-					if isBoatTile then
-						boatId = self:getBoatIdAtPosition(current.q, current.r)
-						local explorersOnBoat = self:getExplorersOnBoatCount(current.q, current.r, boatId)
+						-- ДОДАНО: Перевірка, чи це човен і чи він заповнений
+						local isBoatTile = self:hasBoatOnTile(current.q, current.r)
+						local canEnterTile = true
+						local boatId = nil
 
-						if explorersOnBoat >= 3 then
-							canEnterTile = false -- Човен заповнений
-							print(
-								"    🚫 Човен #"
-									.. tostring(boatId)
-									.. " заповнений ("
-									.. explorersOnBoat
-									.. "/3)"
-							)
+						if isBoatTile then
+							boatId = self:getBoatIdAtPosition(current.q, current.r)
+							local explorersOnBoat = self:getExplorersOnBoatCount(current.q, current.r, boatId)
+							if explorersOnBoat >= 3 then
+								canEnterTile = false -- Човен заповнений
+								print(
+									" 🚫 Човен #"
+										.. tostring(boatId)
+										.. " заповнений ("
+										.. explorersOnBoat
+										.. "/3)"
+								)
+							end
 						end
-					end
 
-					-- Додаємо тайл до доступних, якщо можна
-					if canEnterTile then
-						table.insert(availableTiles, {
-							q = current.q,
-							r = current.r,
-							steps = current.steps,
-							cost = current.steps,
-							coordKey = currentKey,
-							tile = tile,
-							isWater = isWaterTile,
-							isLand = isLandTile,
-							tileType = tile.tileType or (isWaterTile and "Water" or "Land"),
-							hasEnteredWater = current.hasEnteredWater,
-							isBoatTile = isBoatTile,
-							boatId = boatId,
-							isVolcano = tile.isVolcano,
-							isVolcanoActive = tile.isVolcanoActive,
-						})
+						-- Додаємо тайл до доступних, якщо можна
+						if canEnterTile then
+							table.insert(availableTiles, {
+								q = current.q,
+								r = current.r,
+								steps = current.steps,
+								cost = current.steps,
+								coordKey = currentKey,
+								tile = tile,
+								isWater = isWaterTile,
+								isLand = isLandTile,
+								tileType = tile.tileType or (isWaterTile and "Water" or "Land"),
+								hasEnteredWater = current.hasEnteredWater,
+								isBoatTile = isBoatTile,
+								boatId = boatId,
+								isVolcano = tile.isVolcano,
+								isVolcanoActive = tile.isVolcanoActive,
+								hasCreature = false,
+							})
+						end
 					end
 				end
 			end
@@ -441,7 +454,7 @@ function AtlantisGame:getAvailableMovementTiles(explorer, maxSteps)
 
 								-- Перевіряємо можливість переходу
 								local canMoveToNeighbor = true
-								local newHasEnteredWater = current.hasEnteredWater -- буде false, бо ми в else блоці
+								local newHasEnteredWater = current.hasEnteredWater -- буде false,
 
 								if isNeighborWater then
 									-- Перший вхід у воду на цьому ходу (дозволено)
@@ -518,6 +531,43 @@ function AtlantisGame:getAvailableMovementTiles(explorer, maxSteps)
 	)
 
 	return availableTiles
+end
+
+function AtlantisGame:hasCreatureOnTile(q, r)
+	-- Перевіряємо чи є на цьому тайлі акула, кайдзю або восьминіг
+	for _, obj in ipairs(workspace:GetChildren()) do
+		-- Перевіряємо різні атрибути істот
+		local isShark = obj:GetAttribute("IsShark")
+		local isKaiju = obj:GetAttribute("IsKaiju")
+		local isOctopus = obj:GetAttribute("IsOctopus")
+		local creatureType = obj:GetAttribute("CreatureType")
+
+		-- Якщо це будь-яка істота
+		if
+			isShark
+			or isKaiju
+			or isOctopus
+			or creatureType == "Shark"
+			or creatureType == "Kaiju"
+			or creatureType == "Octopus"
+		then
+			local creatureQ = obj:GetAttribute("Q")
+			local creatureR = obj:GetAttribute("R")
+
+			if creatureQ == q and creatureR == r then
+				-- Логуємо тип істоти для відлагодження
+				local typeName = creatureType
+					or (isShark and "Shark")
+					or (isKaiju and "Kaiju")
+					or (isOctopus and "Octopus")
+					or "Unknown"
+				print("🦈 Знайдено істоту " .. typeName .. " на Q=" .. q .. " R=" .. r)
+				return true
+			end
+		end
+	end
+
+	return false
 end
 
 -- ДОБАВЛЕНО: Обработка размещения исследователя
