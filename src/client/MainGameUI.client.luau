@@ -83,8 +83,8 @@ UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
 			actionsLabel.Text =
 				string.format("Переміщено! Витрачено: %d монет", data.moveCost or 1)
 
-			-- Оновлюємо через 2 секунди
-			task.delay(2, function()
+			-- Оновлюємо
+			task.delay(0, function()
 				if actionsLabel then
 					local remaining = data.remainingActions or 0
 					if remaining > 0 then

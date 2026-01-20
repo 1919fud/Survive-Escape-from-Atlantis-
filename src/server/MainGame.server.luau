@@ -23,6 +23,7 @@ function AtlantisGame.new()
 	-- ДОБАВЛЕНО: Система размещения
 	self.placementPhase = PlacementPhase.new()
 	self.gameState = "ready" -- ready, placement, main_game
+	self.savedExplorers = {}
 	self.floodPhase = nil
 	self.floodPhase = require(GameModules:WaitForChild("FloodPhase")).new()
 	self.floodPhase.mainGame = self
@@ -1328,24 +1329,24 @@ function AtlantisGame:getExplorersOnBoatCount(q, r, boatId)
 end
 
 function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
-	print("🎯 [СЕРВЕР] onPlayerMoveExplorer викликано")
-	print("  Гравець:", player.Name, "explorerId:", explorerId, "Q=", q, "R=", r)
+	print("🎯 [СЕРВЕР] onPlayerMoveExplorer вызвано")
+	print(" Игрок:", player.Name, "explorerId:", explorerId, "Q=", q, "R=", r)
 
 	if not self.isGameActive or self.gameState ~= "main_game" then
-		print("❌ [СЕРВЕР] Гра не активна або не основна фаза!")
+		print("❌ [СЕРВЕР] Игра не активна или не основная фаза!")
 		return false
 	end
 
-	-- Перевіряємо чи хід гравця
+	-- Проверяем чей ход
 	if player ~= self.turnManager:getCurrentPlayer() then
-		print("❌ [СЕРВЕР] Не ваш хід!")
+		print("❌ [СЕРВЕР] Не ваш ход!")
 		return false
 	end
 
-	-- Знаходимо дослідника
+	-- Находим исследователя
 	local playerData = self.players[player]
 	if not playerData then
-		print("❌ [СЕРВЕР] Дані гравця не знайдені!")
+		print("❌ [СЕРВЕР] Данные игрока не найдены!")
 		return false
 	end
 
@@ -1353,160 +1354,68 @@ function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
 	if playerData.explorers then
 		explorerId = tonumber(explorerId)
 		if not explorerId then
-			print("❌ [СЕРВЕР] Неправильний формат explorerId")
+			print("❌ [СЕРВЕР] Неправильный формат explorerId")
 			return false
 		end
 
 		for _, exp in ipairs(playerData.explorers) do
 			if exp.id == explorerId and exp.player == player then
 				explorer = exp
-				print("  ✅ Знайдено дослідника гравця:", player.Name)
+				print(" ✅ Найден исследователь игрока:", player.Name)
 				break
 			end
 		end
 	end
 
 	if not explorer then
-		print("❌ [СЕРВЕР] Дослідник не знайдений!")
+		print("❌ [СЕРВЕР] Исследователь не найден!")
 		return false
 	end
 
-	-- Перевіряємо, чи дослідник вже входив у воду цього ходу
+	-- Проверяем, не входил ли исследователь уже в воду этим ходом
 	if explorer.hasEnteredWaterThisTurn then
-		print("❌ [СЕРВЕР] Цей дослідник вже входив у воду цього ходу!")
+		print(
+			"❌ [СЕРВЕР] Этот исследователь уже входил в воду этим ходом!"
+		)
 		return false
 	end
 
-	print("✅ [СЕРВЕР] Знайдено дослідника ID:", explorer.id)
+	print("✅ [СЕРВЕР] Найден исследователь ID:", explorer.id)
 
-	-- ДОДАНО: Перевіряємо, чи на цьому тайлі є човен
+	-- Проверяем, является ли тайл безопасным
+	local tile = self.mapManager:getTileAtPosition(q, r)
+	local isSafeTile = false
+	if tile and tile.meshPart and tile.meshPart:GetAttribute("TileType") == "Safe" then
+		isSafeTile = true
+		print("🛡️ Это безопасный тайл! Исследователь будет сохранен")
+	end
+
+	-- Проверяем, есть ли на этом тайле лодка
 	local isBoatTile = self:hasBoatOnTile(q, r)
 	local boatId = nil
 
 	if isBoatTile then
 		boatId = self:getBoatIdAtPosition(q, r)
-
-		-- ДОДАНО: Якщо не знайдено, шукаємо по всіх човнах
-		if not boatId then
-			print("🔍 Пошук boatId через всі човни...")
-			for _, obj in ipairs(workspace:GetChildren()) do
-				if obj:IsA("Model") and obj:GetAttribute("IsBoat") then
-					local boatQ = obj:GetAttribute("Q")
-					local boatR = obj:GetAttribute("R")
-					if boatQ == q and boatR == r then
-						boatId = obj:GetAttribute("BoatId")
-						print("✅ Знайдено boatId через прямий пошук:", boatId)
-						break
-					end
-				end
-			end
-
-			-- Якщо все ще не знайдено, створюємо
-			if not boatId then
-				boatId = math.abs(q * 100 + r)
-				print("🆔 Створено boatId на основі координат:", boatId)
-			end
-		end
-
-		print("🚤 Це тайл з човном #" .. tostring(boatId))
-
-		-- Перевіряємо чи човен не заповнений (тепер передаємо boatId)
+		-- Проверяем, не заполнена ли лодка
 		local explorersOnBoat = self:getExplorersOnBoatCount(q, r, boatId)
 		if explorersOnBoat >= 3 then
 			print(
-				"❌ [СЕРВЕР] Човен #"
+				"❌ [СЕРВЕР] Лодка #"
 					.. boatId
-					.. " заповнений! Максимум 3 дослідника"
+					.. " заполнена! Максимум 3 исследователя"
 			)
-
-			-- Отправляем сообщение игроку
-			self.networkManager:getUpdateReadyStatusEvent():FireClient(player, {
-				type = "boat_full",
-				message = "❌ Човен заповнений! Максимум 3 дослідника",
-			})
-
-			return false
-		end
-		print("🔍 ДЕТАЛЬНА ПЕРЕВІРКА ЧОВНА перед переміщенням:")
-		print("  Цільовий тайл: Q=", q, "R=", r)
-		print("  Перевіряємо всі човни в workspace:")
-
-		local allBoatsFound = {}
-		for _, obj in ipairs(workspace:GetChildren()) do
-			if obj:IsA("Model") and obj:GetAttribute("IsBoat") then
-				table.insert(allBoatsFound, {
-					name = obj.Name,
-					id = obj:GetAttribute("BoatId"),
-					q = obj:GetAttribute("Q"),
-					r = obj:GetAttribute("R"),
-					player = obj:GetAttribute("Player"),
-				})
-			end
-		end
-
-		for _, boatInfo in ipairs(allBoatsFound) do
-			print(
-				"  - "
-					.. boatInfo.name
-					.. ": ID="
-					.. tostring(boatInfo.id)
-					.. ", Q="
-					.. tostring(boatInfo.q)
-					.. ", R="
-					.. tostring(boatInfo.r)
-					.. ", Player="
-					.. tostring(boatInfo.player)
-			)
-		end
-
-		-- Перевіряємо конкретно човен на Q, R
-		for _, obj in ipairs(workspace:GetChildren()) do
-			if obj:IsA("Model") and obj:GetAttribute("IsBoat") then
-				local boatQ = tonumber(obj:GetAttribute("Q")) or 0
-				local boatR = tonumber(obj:GetAttribute("R")) or 0
-				local targetQ = tonumber(q) or 0
-				local targetR = tonumber(r) or 0
-
-				if boatQ == targetQ and boatR == targetR then
-					print("✅ Знайдено точний відповідник: " .. obj.Name)
-					print("    BoatId: " .. tostring(obj:GetAttribute("BoatId")))
-				end
-			end
-		end
-	end
-
-	-- Якщо це човен, перевіряємо чи він не заповнений
-	if isBoatTile then
-		local explorersOnBoat = self:getExplorersOnBoatCount(q, r, boatId)
-		if explorersOnBoat >= 3 then
-			print(
-				"❌ [СЕРВЕР] Човен #"
-					.. boatId
-					.. " заповнений! Максимум 3 дослідника"
-			)
-
-			-- Відправляємо спеціальну помилку клієнту
-			self.networkManager:getHighlightTilesEvent():FireClient(player, {
-				type = "boat_full",
-				explorerId = explorerId,
-				boatId = boatId,
-				message = "❌ Човен заповнений! Максимум 3 дослідника",
-				remainingActions = self.turnManager:getRemainingActions(player),
-			})
-
 			return false
 		end
 	end
 
-	-- Знаходимо інформацію про переміщення
+	-- Находим информацию о перемещении
 	local maxSteps = self.turnManager:getRemainingActions(player)
 	local availableTiles = self:getAvailableMovementTiles(explorer, maxSteps)
-
 	local moveCost = nil
 	local targetTileData = nil
 	local isWaterTile = false
 
-	-- Знаходимо тайл серед доступних
+	-- Находим тайл среди доступных
 	for _, tileData in ipairs(availableTiles) do
 		if tileData.q == q and tileData.r == r then
 			moveCost = tileData.cost
@@ -1517,65 +1426,118 @@ function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
 	end
 
 	if not moveCost then
-		print("❌ [СЕРВЕР] Цей тайл недоступний для переміщення!")
+		print("❌ [СЕРВЕР] Этот тайл недоступен для перемещения!")
 		return false
 	end
 
-	print("💰 [СЕРВЕР] Вартість переміщення:", moveCost, "монет(и)")
-	print("  Тип тайла:", isWaterTile and "Вода" or "Сушя", isBoatTile and "(човен)" or "")
+	print("💰 [СЕРВЕР] Стоимость перемещения:", moveCost, "монет(ы)")
+	print(
+		" Тип тайла:",
+		isWaterTile and "Вода" or "Суша",
+		isBoatTile and "(лодка)" or "",
+		isSafeTile and "(безопасный)" or ""
+	)
 
-	-- Використовуємо дії
+	-- Используем действия (это нужно делать ДО сохранения исследователя)
 	local actionsUsed = 0
 	while actionsUsed < moveCost do
 		if not self.turnManager:useAction(player) then
-			print("❌ [СЕРВЕР] Недостатньо дій!")
+			print("❌ [СЕРВЕР] Недостаточно действий!")
 			return false
 		end
 		actionsUsed = actionsUsed + 1
 	end
 
-	print("🚶 [СЕРВЕР] Гравець", player.Name, "переміщує свого дослідника")
+	print("🚶 [СЕРВЕР] Игрок", player.Name, "перемещает своего исследователя")
 
+	-- Если это безопасный тайл - сохраняем исследователя
+	if isSafeTile then
+		-- Сохраняем исследователя
+		self:saveExplorerToSafeTile(explorer, player, q, r)
+
+		-- Уведомляем всех клиентов
+		self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
+			type = "ExplorerSaved",
+			explorerId = explorerId,
+			playerName = player.Name,
+			q = q,
+			r = r,
+			treasureValue = explorer.treasureValue,
+			moveCost = moveCost, -- ДОБАВЛЕНО: отправляем стоимость
+			remainingActions = self.turnManager:getRemainingActions(player), -- ДОБАВЛЕНО
+		})
+		self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
+			type = "ExplorerMoved",
+			explorerId = explorerId,
+			playerName = player.Name,
+			q = q,
+			r = r,
+			treasureValue = explorer.treasureValue,
+			moveCost = moveCost, -- ДОБАВЛЕНО: отправляем стоимость
+			remainingActions = self.turnManager:getRemainingActions(player), -- ДОБАВЛЕНО
+		})
+
+		-- Проверяем, закончились ли действия
+		local remainingActions = self.turnManager:getRemainingActions(player)
+		if remainingActions <= 0 then
+			print(
+				"🎯 [СЕРВЕР] Все действия использованы после сохранения исследователя"
+			)
+			self:endPlayerTurn(player)
+		else
+			-- Сбрасываем выделение
+			self.networkManager:getHighlightTilesEvent():FireClient(player, {
+				type = "clear",
+			})
+		end
+
+		return true
+	end
+
+	-- Если исследователь был на лодке, а теперь не на лодке
 	if explorer.isOnBoat and not isBoatTile then
 		explorer.isOnBoat = false
 		explorer.boatId = nil
 		explorer.boatPlaceIndex = nil
-		print("🚤 Дослідник зійшов з човна")
+		print("🚤 Исследователь сошел с лодки")
 	end
 
 	-- Обновляем позицию
 	explorer.q = q
 	explorer.r = r
 
-	-- ДОДАНО: Оновлюємо інформацію про човен
+	-- Обновляем информацию о лодке
 	if isBoatTile and boatId then
 		explorer.isOnBoat = true
 		explorer.boatId = boatId
 
-		-- Знаходимо вільне місце на човні
+		-- Находим свободное место на лодке
 		local freePlace = self:findFreeBoatPlace(boatId)
 		if freePlace then
 			explorer.boatPlaceIndex = freePlace
 			print(
-				"🚤 Дослідник сів на човен #"
+				"🚤 Исследователь сел на лодку #"
 					.. tostring(boatId)
-					.. " на місце "
+					.. " на место "
 					.. freePlace
 			)
 		else
-			print("❌ На човні немає вільних місць!")
-			-- Скасовуємо переміщення
+			print("❌ На лодке нет свободных мест!")
+			-- Возвращаем потраченные действия
+			for i = 1, actionsUsed do
+				self.turnManager:refundAction(player)
+			end
 			return false
 		end
 	end
 
-	-- Позначаємо, якщо входив у воду (але не на човен)
+	-- Отмечаем, если вошел в воду (но не на лодку)
 	if isWaterTile and not isBoatTile then
 		explorer.hasEnteredWaterThisTurn = true
-		print("💧 Дослідник ввійшов у воду")
+		print("💧 Исследователь вошел в воду")
 	end
 
-	-- Уведомляємо всіх клієнтів
+	-- Уведомляем всех клиентов
 	self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
 		type = "ExplorerMoved",
 		explorerId = explorerId,
@@ -1589,19 +1551,133 @@ function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
 		remainingActions = self.turnManager:getRemainingActions(player),
 	})
 
-	-- Перевіряємо чи закінчились дії
+	-- Проверяем, закончились ли действия
 	local remainingActions = self.turnManager:getRemainingActions(player)
 	if remainingActions <= 0 then
-		print("🎯 [СЕРВЕР] Усі дії використані")
+		print("🎯 [СЕРВЕР] Все действия использованы")
 		self:endPlayerTurn(player)
 	else
-		-- Скидаємо вибір дослідника
+		-- Сбрасываем выбор исследователя
 		self.networkManager:getHighlightTilesEvent():FireClient(player, {
 			type = "clear",
 		})
 	end
 
 	return true
+end
+
+function AtlantisGame:saveExplorerToSafeTile(explorer, player, q, r)
+	print(
+		"🛡️ Сохранение исследователя #"
+			.. explorer.id
+			.. " игрока "
+			.. player.Name
+			.. " на безопасном тайле Q="
+			.. q
+			.. " R="
+			.. r
+	)
+
+	-- Сохраняем исследователя в таблицу сохраненных
+	local saveData = {
+		explorerId = explorer.id,
+		player = player,
+		playerName = player.Name,
+		treasureValue = explorer.treasureValue,
+		q = q,
+		r = r,
+		savedAt = os.time(),
+	}
+
+	table.insert(self.savedExplorers, saveData)
+
+	-- Удаляем исследователя из данных игрока
+	local playerData = self.players[player]
+	if playerData and playerData.explorers then
+		for i = #playerData.explorers, 1, -1 do
+			if playerData.explorers[i].id == explorer.id then
+				table.remove(playerData.explorers, i)
+				playerData.explorersPlaced = math.max(0, playerData.explorersPlaced - 1)
+				print("🗑️ Удален исследователь из данных игрока")
+				break
+			end
+		end
+	end
+
+	-- Ищем визуальную модель исследователя в workspace
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:GetAttribute("IsExplorer") and obj:GetAttribute("ExplorerId") == explorer.id then
+			-- Визуальный эффект для сохранения
+			local saveEffect = Instance.new("ParticleEmitter")
+			saveEffect.Name = "SaveEffect"
+			saveEffect.Color = ColorSequence.new(Color3.fromRGB(255, 215, 0)) -- Золотой цвет
+			saveEffect.Size = NumberSequence.new(1)
+			saveEffect.Transparency = NumberSequence.new(0.7)
+			saveEffect.Lifetime = NumberRange.new(2, 3)
+			saveEffect.Rate = 50
+			saveEffect.Speed = NumberRange.new(3, 5)
+			saveEffect.Parent = obj.PrimaryPart
+
+			-- Плавно поднимаем исследователя вверх
+			local tweenService = game:GetService("TweenService")
+			local targetPosition = obj.PrimaryPart.Position + Vector3.new(0, 10, 0)
+			local tweenInfo = TweenInfo.new(2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+			local tween = tweenService:Create(obj.PrimaryPart, tweenInfo, { Position = targetPosition })
+			tween:Play()
+
+			-- Удаляем после анимации
+			game:GetService("Debris"):AddItem(obj, 3)
+
+			print("✨ Визуальный эффект сохранения применен")
+			break
+		end
+	end
+
+	-- Проверяем условия победы
+	self:checkWinCondition(player)
+
+	print(
+		"✅ Исследователь успешно сохранен. Всего сохранено:",
+		#self.savedExplorers
+	)
+	print("🎯 Осталось действий у игрока:", self.turnManager:getRemainingActions(player))
+end
+
+-- Функция проверки условий победы
+function AtlantisGame:checkWinCondition(player)
+	local savedCount = 0
+	local playerName = player.Name
+
+	-- Считаем сколько исследователей сохранил этот игрок
+	for _, saved in ipairs(self.savedExplorers) do
+		if saved.playerName == playerName then
+			savedCount = savedCount + 1
+		end
+	end
+
+	print("📊 Игрок " .. playerName .. " сохранил " .. savedCount .. " исследователей")
+
+	-- Если игрок сохранил всех своих исследователей (по умолчанию 4)
+	local playerData = self.players[player]
+	local totalExplorers = playerData.maxExplorers or 4
+
+	if savedCount >= totalExplorers then
+		print(
+			"🎉 Игрок " .. playerName .. " выиграл! Все исследователи сохранены!"
+		)
+
+		-- Уведомляем всех о победе
+		self.networkManager:getGameStartEvent():FireAllClients({
+			phase = "game_over",
+			message = "🎉 Игрок " .. playerName .. " выиграл!",
+			winner = playerName,
+			savedExplorers = savedCount,
+		})
+
+		-- Завершаем игру
+		self.isGameActive = false
+		self.gameState = "finished"
+	end
 end
 
 function AtlantisGame:getBoatController(boatId)

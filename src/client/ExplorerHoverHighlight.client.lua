@@ -981,15 +981,16 @@ local function highlightAvailableTiles(data)
 		return
 	end
 
-	-- Створюємо різні кольори для різних вартостей і типів
+	-- Создаем разные цвета для разных стоимостей и типов
 	local colorByCost = {
-		[1] = Color3.fromRGB(0, 255, 0), -- Зелений для 1 кроку (сушя)
-		[2] = Color3.fromRGB(255, 255, 0), -- Жовтий для 2 кроків
-		[3] = Color3.fromRGB(255, 165, 0), -- Помаранчевий для 3 кроків
+		[1] = Color3.fromRGB(0, 255, 0), -- Зеленый для 1 шага (суша)
+		[2] = Color3.fromRGB(255, 255, 0), -- Желтый для 2 шагов
+		[3] = Color3.fromRGB(255, 165, 0), -- Оранжевый для 3 шагов
 	}
 
 	-- Для воды специальные цвета
 	local waterColor = Color3.fromRGB(0, 150, 255) -- Синий для воды
+	local safeColor = Color3.fromRGB(255, 215, 0) -- Золотой для безопасных тайлов
 	local creatureColor = Color3.fromRGB(255, 50, 50)
 
 	for _, tileData in ipairs(data.availableTiles) do
@@ -997,17 +998,18 @@ local function highlightAvailableTiles(data)
 		if tile then
 			local highlight = Instance.new("Highlight")
 			highlight.Name = "AvailableTileHighlight"
-
 			local cost = tileData.cost or 1
 			local isWater = tileData.isWater or false
+			local isSafe = tileData.isSafe or false -- ДОБАВЛЕНО
 			local hasCreature = tileData.hasCreature or false
+
 			if hasCreature then
 				highlight.FillColor = creatureColor
 				highlight.OutlineColor = Color3.fromRGB(200, 0, 0)
 				highlight.FillTransparency = 0.4
 				highlight.OutlineTransparency = 0
 
-				-- Додаємо спеціальний текст для тайлів з істотами
+				-- Добавляем специальный текст для тайлов с существами
 				local billboard = Instance.new("BillboardGui")
 				billboard.Name = "CreatureWarning"
 				billboard.Size = UDim2.new(2, 0, 2, 0)
@@ -1021,20 +1023,66 @@ local function highlightAvailableTiles(data)
 				warningLabel.Size = UDim2.new(1, 0, 1, 0)
 				warningLabel.BackgroundTransparency = 1
 				warningLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
-				warningLabel.Text = "🦈" -- Іконка акули
+				warningLabel.Text = "🦈" -- Иконка акулы
 				warningLabel.Font = Enum.Font.GothamBlack
 				warningLabel.TextScaled = true
 				warningLabel.TextStrokeTransparency = 0
 				warningLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
 				warningLabel.Parent = billboard
-			elseif isWater then
-				-- Водні тайли сині з спеціальним ефектом
-				highlight.FillColor = waterColor
-				highlight.OutlineColor = Color3.fromRGB(0, 100, 200)
-				highlight.FillTransparency = 0.3 -- Менша прозорість для води
+			elseif isSafe then
+				-- ДОБАВЛЕНО: Золотое свечение для безопасных тайлов
+				highlight.FillColor = safeColor
+				highlight.OutlineColor = Color3.fromRGB(255, 255, 0)
+				highlight.FillTransparency = 0.3
 				highlight.OutlineTransparency = 0
 
-				-- Додаємо ефект хвиль для води
+				-- Эффект пульсации для безопасных тайлов
+				coroutine.wrap(function()
+					while highlight and highlight.Parent == tile do
+						local tweenInfo1 = TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+						local tween1 = TweenService:Create(highlight, tweenInfo1, { FillTransparency = 0.1 })
+						tween1:Play()
+						tween1.Completed:Wait()
+
+						if not highlight or highlight.Parent ~= tile then
+							break
+						end
+
+						local tweenInfo2 = TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+						local tween2 = TweenService:Create(highlight, tweenInfo2, { FillTransparency = 0.5 })
+						tween2:Play()
+						tween2.Completed:Wait()
+					end
+				end)()
+
+				-- Добавляем иконку сокровища
+				local billboard = Instance.new("BillboardGui")
+				billboard.Name = "SafeTileDisplay"
+				billboard.Size = UDim2.new(2, 0, 2, 0)
+				billboard.StudsOffset = Vector3.new(0, 3, 0)
+				billboard.AlwaysOnTop = true
+				billboard.Adornee = tile
+				billboard.Parent = tile
+
+				local safeLabel = Instance.new("TextLabel")
+				safeLabel.Name = "SafeLabel"
+				safeLabel.Size = UDim2.new(1, 0, 1, 0)
+				safeLabel.BackgroundTransparency = 1
+				safeLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+				safeLabel.Text = cost .. " 🛡️" -- Иконка щита
+				safeLabel.Font = Enum.Font.GothamBlack
+				safeLabel.TextScaled = true
+				safeLabel.TextStrokeTransparency = 0
+				safeLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+				safeLabel.Parent = billboard
+			elseif isWater then
+				-- Водные тайлы синие с специальным эффектом
+				highlight.FillColor = waterColor
+				highlight.OutlineColor = Color3.fromRGB(0, 100, 200)
+				highlight.FillTransparency = 0.3 -- Меньшая прозрачность для воды
+				highlight.OutlineTransparency = 0
+
+				-- Добавляем эффект волн для воды
 				coroutine.wrap(function()
 					while highlight and highlight.Parent == tile do
 						local tweenInfo = TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
@@ -1044,14 +1092,15 @@ local function highlightAvailableTiles(data)
 					end
 				end)()
 			else
-				-- Сухопутні тайли по вартості
+				-- Сухопутные тайлы по стоимости
 				highlight.FillColor = colorByCost[cost] or Color3.fromRGB(0, 255, 0)
 				highlight.OutlineColor = Color3.fromRGB(0, 200, 0)
 				highlight.FillTransparency = 0.7
 				highlight.OutlineTransparency = 0
 			end
-			if not hasCreature then
-				-- Додаємо BillboardGui з інформацією про вартість
+
+			if not hasCreature and not isSafe then
+				-- Добавляем BillboardGui с информацией о стоимости
 				local billboard = Instance.new("BillboardGui")
 				billboard.Name = "CostDisplay"
 				billboard.Size = UDim2.new(2, 0, 2, 0)
@@ -1066,39 +1115,55 @@ local function highlightAvailableTiles(data)
 				costLabel.BackgroundTransparency = 1
 				costLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 				costLabel.Text = tostring(cost)
-
 				if isWater then
-					costLabel.Text = cost .. " 💧" -- Іконка воды
+					costLabel.Text = cost .. " 💧" -- Иконка воды
 					costLabel.TextColor3 = Color3.fromRGB(150, 220, 255)
 					costLabel.Font = Enum.Font.GothamBlack
 				else
 					costLabel.Font = Enum.Font.GothamBold
 				end
-
 				costLabel.TextScaled = true
 				costLabel.TextStrokeTransparency = 0
 				costLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
 				costLabel.Parent = billboard
 			end
-			-- Зберігаємо інформацію про вартість
+
+			-- Сохраняем информацию о стоимости
 			highlight:SetAttribute("Cost", cost)
 			highlight:SetAttribute("Q", tileData.q)
 			highlight:SetAttribute("R", tileData.r)
 			highlight:SetAttribute("IsWater", isWater)
+			highlight:SetAttribute("IsSafe", isSafe) -- ДОБАВЛЕНО
 			highlight:SetAttribute("HasCreature", hasCreature)
-
 			highlight.Parent = tile
+
 			table.insert(tileHighlights, highlight)
 		end
 	end
 
 	isMovementMode = true
-	print("📍 Показано доступні тайли для переміщення")
+	print("📍 Показано доступные тайлы для перемещения")
 
-	-- Оновлюємо UI з інформацією про правила
+	-- Обновляем UI с информацией о правилах
 	if data.remainingActions then
 		closeButton.Visible = true
-		-- Перевіряємо чи є водні тайли
+
+		-- Проверяем есть ли безопасные тайлы
+		local hasSafeTiles = false
+		for _, tileData in ipairs(data.availableTiles) do
+			if tileData.isSafe then
+				hasSafeTiles = true
+				break
+			end
+		end
+
+		local safeWarning = ""
+		if hasSafeTiles then
+			safeWarning =
+				"\n\n🛡️ БЕЗОПАСНЫЕ ТАЙЛЫ: Достигнув их, исследователь будет спасен и выведен из игры!"
+		end
+
+		-- Проверяем есть ли водные тайлы
 		local hasWaterTiles = false
 		for _, tileData in ipairs(data.availableTiles) do
 			if tileData.isWater then
@@ -1110,21 +1175,23 @@ local function highlightAvailableTiles(data)
 		local waterWarning = ""
 		if hasWaterTiles then
 			waterWarning =
-				"\n⚠️ УВАГА: Крок у воду завершить хід цього дослідника!"
+				"\n⚠️ ВНИМАНИЕ: Шаг в воду завершит ход этого исследователя!"
 		end
+
 		infoLabel.Position = UDim2.new(0, 10, 0, 15)
 		infoLabel.Size = UDim2.new(0, 335, 0, 140)
 		infoLabel.Text = string.format(
-			"📍 Дослідник #%d\n"
-				.. "💰 Залишилось монет: %d/3\n"
-				.. "📜 Правила руху:\n"
-				.. "  ⛰️ По суші: без обмежень\n"
-				.. "  🌊 У воду: МАКСИМУМ 1 раз за хід\n"
-				.. "  ⛔ Після води: рух завершено"
-				.. "%s",
+			"📍 Исследователь #%d\n"
+				.. "💰 Осталось монет: %d/3\n"
+				.. "📜 Правила движения:\n"
+				.. " ⛰️ По суше: без ограничений\n"
+				.. " 🌊 В воду: МАКСИМУМ 1 раз за ход\n"
+				.. " ⛔ После воды: движение завершено"
+				.. "%s%s",
 			selectedExplorer:GetAttribute("ExplorerId"),
 			data.remainingActions,
-			waterWarning
+			waterWarning,
+			safeWarning
 		)
 	end
 end
@@ -3303,6 +3370,110 @@ UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
 				end)
 			end
 		end
+	elseif data.type == "ExplorerSaved" then
+		print(
+			"🛡️ Исследователь #"
+				.. data.explorerId
+				.. " сохранен на безопасном тайле!"
+		)
+		print("💰 Потрачено действий:", data.moveCost or 1)
+		print("🎯 Осталось действий:", data.remainingActions or 0)
+
+		-- Находим исследователя в workspace
+		for _, obj in ipairs(workspace:GetChildren()) do
+			if obj:GetAttribute("IsExplorer") and obj:GetAttribute("ExplorerId") == data.explorerId then
+				-- Визуальный эффект сохранения
+				local saveEffect = Instance.new("ParticleEmitter")
+				saveEffect.Name = "SaveEffect"
+				saveEffect.Color = ColorSequence.new(Color3.fromRGB(255, 215, 0)) -- Золотой
+				saveEffect.Size = NumberSequence.new(1)
+				saveEffect.Transparency = NumberSequence.new(0.7)
+				saveEffect.Lifetime = NumberRange.new(2, 3)
+				saveEffect.Rate = 50
+				saveEffect.Speed = NumberRange.new(3, 5)
+				saveEffect.Parent = obj.PrimaryPart
+
+				-- Плавно поднимаем исследователя
+				local tweenService = game:GetService("TweenService")
+				local targetPosition = obj.PrimaryPart.Position + Vector3.new(0, 10, 0)
+				local tweenInfo = TweenInfo.new(2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+				local tween = tweenService:Create(obj.PrimaryPart, tweenInfo, { Position = targetPosition })
+				tween:Play()
+
+				-- Удаляем после анимации
+				game:GetService("Debris"):AddItem(obj, 3)
+
+				-- Очищаем выбор если это был выбранный исследователь
+				if selectedExplorer and selectedExplorer:GetAttribute("ExplorerId") == data.explorerId then
+					clearSelectionState()
+				end
+
+				break
+			end
+		end
+
+		-- Обновляем UI с информацией об оставшихся действиях
+		if isMyTurn and selectionFrame.Visible then
+			if data.remainingActions <= 0 then
+				infoLabel.Text = "🎯 Все действия использованы! Ход завершен."
+				infoLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+
+				-- Автоматически закрываем через 2 секунды
+				task.delay(2, function()
+					if selectionFrame.Visible then
+						clearSelectionState()
+					end
+				end)
+			else
+				infoLabel.Text = string.format(
+					"🛡️ Исследователь сохранен!\n"
+						.. "💰 Потрачено действий: %d\n"
+						.. "🎯 Осталось действий: %d/3\n\n"
+						.. "Оберіть другого дослідника для переміщення",
+					data.moveCost or 1,
+					data.remainingActions or 0
+				)
+				infoLabel.TextColor3 = Color3.fromRGB(255, 215, 0) -- Золотой
+			end
+		end
+		print(
+			"🛡️ Исследователь #"
+				.. data.explorerId
+				.. " сохранен на безопасном тайле!"
+		)
+
+		-- Находим исследователя в workspace
+		for _, obj in ipairs(workspace:GetChildren()) do
+			if obj:GetAttribute("IsExplorer") and obj:GetAttribute("ExplorerId") == data.explorerId then
+				-- Визуальный эффект сохранения
+				local saveEffect = Instance.new("ParticleEmitter")
+				saveEffect.Name = "SaveEffect"
+				saveEffect.Color = ColorSequence.new(Color3.fromRGB(255, 215, 0)) -- Золотой
+				saveEffect.Size = NumberSequence.new(1)
+				saveEffect.Transparency = NumberSequence.new(0.7)
+				saveEffect.Lifetime = NumberRange.new(2, 3)
+				saveEffect.Rate = 50
+				saveEffect.Speed = NumberRange.new(3, 5)
+				saveEffect.Parent = obj.PrimaryPart
+
+				-- Плавно поднимаем исследователя
+				local tweenService = game:GetService("TweenService")
+				local targetPosition = obj.PrimaryPart.Position + Vector3.new(0, 10, 0)
+				local tweenInfo = TweenInfo.new(2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+				local tween = tweenService:Create(obj.PrimaryPart, tweenInfo, { Position = targetPosition })
+				tween:Play()
+
+				-- Удаляем после анимации
+				game:GetService("Debris"):AddItem(obj, 3)
+
+				-- Очищаем выбор если это был выбранный исследователь
+				if selectedExplorer and selectedExplorer:GetAttribute("ExplorerId") == data.explorerId then
+					clearSelectionState()
+				end
+
+				break
+			end
+		end
 	elseif data.type == "MainGameTurn" then
 		-- Обновляем информацию о ходе
 		local currentPlayerName = data.currentPlayer or ""
@@ -3780,7 +3951,7 @@ GameStartEvent.OnClientEvent:Connect(function(data)
 			task.delay(2, function()
 				creatureFrame:TweenSizeAndPosition(
 					UDim2.new(0, 100, 0, 60),
-					UDim2.new(1, -120, 0, 20), -- Правий верхній кут
+					UDim2.new(1, -120, 0, 20), -- Пр��вий верхній кут
 					Enum.EasingDirection.Out,
 					Enum.EasingStyle.Quad,
 					0.5

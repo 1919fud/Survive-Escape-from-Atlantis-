@@ -290,7 +290,14 @@ function MapManager:getTileAtPosition(q, r)
 		tile.isLand = true
 		tile.tileType = tile.type or "Land"
 
-		-- ПЕРЕВІРКА НА АКТИВНИЙ ВУЛКАН
+		-- ДОБАВЛЕНО: Проверка на безопасный тайл
+		if tile.meshPart and tile.meshPart:GetAttribute("TileType") == "Safe" then
+			tile.tileType = "Safe"
+			tile.isSafe = true
+			print("🛡️ Найден безопасный тайл Q=" .. q .. " R=" .. r)
+		end
+
+		-- Проверка на активный вулкан
 		if tile.meshPart then
 			local isVolcano = tile.meshPart:GetAttribute("IsVolcano")
 			local isVolcanoActive = tile.meshPart:GetAttribute("VolcanoActive")
@@ -302,10 +309,22 @@ function MapManager:getTileAtPosition(q, r)
 
 			if tile.isVolcanoActive then
 				tile.tileType = "Volcano"
-				print("🌋 Тайл Q=", q, "R=", r, "є АКТИВНИМ вулканом - заблоковано!")
+				print(
+					"🌋 Тайл Q="
+						.. q
+						.. " R="
+						.. r
+						.. " является АКТИВНЫМ вулканом - заблокирован!"
+				)
 			elseif tile.isVolcano and not tile.isVolcanoActive then
 				tile.tileType = "Mountain (with Volcano)"
-				print("⛰️ Тайл Q=", q, "R=", r, "є горою з вулканом (не активний)")
+				print(
+					"⛰️ Тайл Q="
+						.. q
+						.. " R="
+						.. r
+						.. " является горой с вулканом (не активный)"
+				)
 			end
 		else
 			tile.isVolcano = false
@@ -327,9 +346,10 @@ function MapManager:getTileAtPosition(q, r)
 			isVolcano = false,
 			isVolcanoActive = false,
 			isBlocked = false,
+			isSafe = false, -- ДОБАВЛЕНО
 		}
 
-		-- Перевіряємо водний тайл на активний вулкан
+		-- Проверяем водный тайл на активный вулкан
 		local meshPart = self.waterTiles[coordKey]
 		if meshPart then
 			local isVolcanoActive = meshPart:GetAttribute("VolcanoActive")
@@ -338,11 +358,11 @@ function MapManager:getTileAtPosition(q, r)
 				waterTile.isBlocked = true
 				waterTile.tileType = "Volcano (Water)"
 				print(
-					"🌋 Водний тайл Q=",
-					q,
-					"R=",
-					r,
-					"є активним вулканом - заблоковано!"
+					"🌋 Водный тайл Q="
+						.. q
+						.. " R="
+						.. r
+						.. " является активным вулканом - заблокирован!"
 				)
 			end
 		end
