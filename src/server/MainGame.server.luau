@@ -763,6 +763,7 @@ function AtlantisGame:startMainGamePhase()
 
 	-- Инициализируем TurnManager с игроками
 	self.turnManager = TurnManager.new()
+	self.turnManager.mainGame = self
 	self.turnManager:initialize(self.players)
 	self.turnManager:startMainGamePhase()
 
@@ -788,6 +789,8 @@ function AtlantisGame:startFloodPhase(player)
 
 	-- Ініціалізуємо та починаємо фазу затоплення
 	self.floodPhase:start(player, self.players, self.networkManager, self.mapManager)
+	self.floodPhase.mainGame = self
+	self.floodPhase.currentPlayer = player
 
 	-- Уведомляємо всіх гравців
 	self.networkManager:getGameStartEvent():FireAllClients({
@@ -795,14 +798,27 @@ function AtlantisGame:startFloodPhase(player)
 		message = "🌊 ФАЗА ЗАТОПЛЕННЯ!",
 		currentPlayer = player.Name,
 	})
-
-	-- Скидаємо дії для наступного ходу
-	self.turnManager:nextTurn()
 end
 
 function AtlantisGame:startCreaturePhase(player)
+	--print("🦖 Початок фази істот для гравця:", player.Name)
+	if not player then
+		player = self.turnManager:getCurrentPlayer()
+	end
+	-- Зупиняємо основну гру
 	self.gameState = "creatures"
+	self.isGameActive = false
+
+	-- Ініціалізуємо та починаємо фазу істот
 	self.creaturePhase:start(player, self)
+
+	-- Уведомляємо всіх гравців
+	--[[self.networkManager:getGameStartEvent():FireAllClients({
+		phase = "creature_phase_start",
+		message = "🦖 ФАЗА ІСТОТ!",
+		currentPlayer = player.Name,
+	})]]
+	--
 end
 
 function AtlantisGame:returnToMainGame()
@@ -814,6 +830,31 @@ function AtlantisGame:returnToMainGame()
 	-- Переходимо до наступного гравця
 	local nextPlayer = self.turnManager:nextTurn()
 	self:startPlayerTurn()
+end
+
+function AtlantisGame:returnToMainGameAfterCreaturePhase()
+	print("🔄 Повернення до основної гри після фази істот")
+
+	-- Очищаємо всі підсвічування
+	self.networkManager:getHighlightTilesEvent():FireAllClients({
+		type = "clear",
+	})
+
+	-- Повертаємо стан гри
+	self.gameState = "main_game"
+	self.isGameActive = true
+
+	-- ПЕРЕХІД ДО НАСТУПНОГО ГРАВЦЯ
+	local nextPlayer = self.turnManager:nextTurn()
+
+	if nextPlayer then
+		print("🎮 Перехід ходу після фази істот до:", nextPlayer.Name)
+		self:startPlayerTurn(nextPlayer)
+	else
+		-- Якщо наступного гравця немає, починаємо новий раунд
+		print("🔄 Початок нового раунду після фази істот")
+		self:startPlayerTurn()
+	end
 end
 
 function AtlantisGame:returnToMainGameAfterFlood()
@@ -828,20 +869,54 @@ function AtlantisGame:returnToMainGameAfterFlood()
 	self.gameState = "main_game"
 	self.isGameActive = true
 
-	-- Сповіщаємо клієнтів
-	self.networkManager:getGameStartEvent():FireAllClients({
-		phase = "flood_complete",
-		message = "🌊 Фаза затоплення завершена!",
-		returnToMainGame = true,
-	})
+	-- НЕ начинаем ход следующего игрока!
+	-- Вместо этого продолжаем ход текущего игрока
 
-	-- Чекаємо 1 секунду для анімації
-	task.wait(1)
+	-- Получаем текущего игрока (который только что завершил фазу существ)
+	local currentPlayer = self.turnManager:getCurrentPlayer()
+	if currentPlayer then
+		print("🎮 Продовження хоку гравця:", currentPlayer.Name)
 
-	-- Починаємо хід поточного гравця
-	self:startPlayerTurn()
+		-- Скидаємо флаги входа в воду для исследователей текущего игрока
+		local playerData = self.players[currentPlayer]
+		if playerData and playerData.explorers then
+			for _, explorer in ipairs(playerData.explorers) do
+				explorer.hasEnteredWaterThisTurn = false
+			end
+		end
+
+		-- Уведомляем текущего игрока
+		local turnInfo = self.turnManager:getTurnInfo()
+		self.networkManager:getGameStartEvent():FireClient(currentPlayer, {
+			phase = "main_game_turn",
+			message = "Ваш хід продовжується!",
+			isYourTurn = true,
+			remainingActions = turnInfo.remainingActions,
+			maxActions = turnInfo.maxActions,
+		})
+
+		-- Остальным игрокам - ожидание
+		for _, player in ipairs(self.turnManager.playersOrder) do
+			if player ~= currentPlayer then
+				self.networkManager:getGameStartEvent():FireClient(player, {
+					phase = "main_game_waiting",
+					message = "Чекайте поки " .. currentPlayer.Name .. " завершить хід",
+				})
+			end
+		end
+
+		-- Обновляем статус для всех
+		self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
+			type = "MainGameTurn",
+			currentPlayer = currentPlayer.Name,
+			turnInfo = turnInfo,
+			remainingActions = turnInfo.remainingActions,
+			maxActions = turnInfo.maxActions,
+		})
+	end
+
+	print("✅ Ход продовжено для того ж гравця")
 end
-
 function AtlantisGame:updateExplorerPosition(explorerId, playerName, newQ, newR)
 	print(
 		"🔄 Оновлення позиції дослідника "
@@ -1970,7 +2045,12 @@ function AtlantisGame:onPlayerMoveBoat(player, boatId, q, r)
 	local oldName = boatModel.Name
 	local newName = "Boat_" .. tostring(boatId) .. "_" .. player.Name .. "_" .. q .. "_" .. r
 	boatModel.Name = newName
-	print("🔄 [СЕРВЕР] Оновлено назву човна: ", oldName, "→", newName)
+	print(
+		"🔄 [����������ВЕР] Оновлено назву човна: ",
+		oldName,
+		"→",
+		newName
+	)
 
 	-- Оновлюємо координати човна
 	boatModel:SetAttribute("Q", q)
@@ -2081,7 +2161,7 @@ function AtlantisGame:onPlayerMoveBoat(player, boatId, q, r)
 end
 
 function AtlantisGame:endPlayerTurn(player)
-	print("🎮 [СЕРВЕР] Завершення хоку гравця:", player.Name)
+	print("🎮 [СЕРВЕР] Завершення хоку гравця:", player)
 
 	-- Скидаємо прапори входу у воду
 	local playerData = self.players[player]

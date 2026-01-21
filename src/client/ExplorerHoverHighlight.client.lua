@@ -3819,16 +3819,20 @@ GameStartEvent.OnClientEvent:Connect(function(data)
 	print("📡 Отримано подію гри:", data.phase)
 
 	if data.phase == "main_game_active" then
+		if creatureGui then
+			creatureGui.Enabled = false
+		end
 		-- Основная игра началась
 		isGamePhaseActive = true
 		isMyTurn = false -- Пока не наш хід
 		print("🎮 Основна гра активна. Чекаємо на хід...")
 	elseif data.phase == "main_game_turn" and data.isYourTurn then
+		-- Це вже є, але переконайтеся, що воно правильно обробляється після фази істот
 		clearAllHighlights()
-		-- Наш хід в основной игре
 		floodScreenGui.Enabled = false
 		floodFrame.Visible = false
 		confirmButton.Visible = false
+		creatureGui.Enabled = false -- Ховаємо UI істот
 
 		isGamePhaseActive = true
 		isMyTurn = true
@@ -3843,6 +3847,29 @@ GameStartEvent.OnClientEvent:Connect(function(data)
 			data.remainingActions or 3,
 			data.maxActions or 3
 		)
+	elseif data.phase == "creature_phase_complete" then
+		print("✅ Фаза істот завершена - очищення UI")
+
+		-- Ховаємо UI істот
+		if creatureGui then
+			creatureGui.Enabled = false
+		end
+
+		if creatureFrame then
+			creatureFrame.Visible = false
+		end
+
+		isCreaturePhase = false
+		currentCreatureTurn = nil
+
+		-- Очищаємо всі підсвічування
+		clearAllHighlights()
+
+		-- Якщо це наш хід, очікуємо повідомлення про основний хід
+		if isMyTurn then
+			isMyTurn = false
+			print("⏳ Чекаємо на підтвердження ходу від сервера...")
+		end
 	elseif data.phase == "main_game_waiting" then
 		-- Ждем своего хода
 		floodScreenGui.Enabled = false
@@ -3909,55 +3936,58 @@ GameStartEvent.OnClientEvent:Connect(function(data)
 		confirmButton.Visible = false
 		isGamePhaseActive = false
 	elseif data.phase == "creature_phase_start" then
-		print("🎲 ФАЗА ІСТОТ: " .. data.rolledCreature)
+		print("🎲 ФАЗА ІСТОТ АКТИВНА: " .. (data.rolledCreature or "Unknown"))
 
 		-- Очищаємо все старе
 		clearAllHighlights()
 		floodScreenGui.Enabled = false
 		selectionFrame.Visible = false
 
-		-- Показуємо Кубик UI
-		creatureGui.Enabled = true
-		creatureLabel.Text = data.rolledCreature:upper()
+		-- Показуємо UI истот
+		if creatureGui then
+			creatureGui.Enabled = true
+			creatureFrame.Visible = true
 
-		-- Анімація/Колір залежно від типу
-		if data.rolledCreature == "Shark" then
-			creatureLabel.TextColor3 = Color3.fromRGB(0, 150, 255) -- Синій
-		elseif data.rolledCreature == "Kaiju" then
-			creatureLabel.TextColor3 = Color3.fromRGB(50, 255, 50) -- Зелений
-		elseif data.rolledCreature == "Octopus" then
-			creatureLabel.TextColor3 = Color3.fromRGB(255, 50, 50) -- Червоний
-		end
+			-- Настраиваем отображение
+			creatureLabel.Text = (data.rolledCreature or "Unknown"):upper()
 
-		isCreaturePhase = true
-		currentCreatureTurn = data.rolledCreature
+			-- Цвет в зависимости от типа
+			local creatureType = data.rolledCreature or ""
+			if creatureType == "Shark" then
+				creatureLabel.TextColor3 = Color3.fromRGB(0, 150, 255)
+			elseif creatureType == "Kaiju" then
+				creatureLabel.TextColor3 = Color3.fromRGB(50, 255, 50)
+			elseif creatureType == "Octopus" then
+				creatureLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
+			else
+				creatureLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+			end
 
-		-- Якщо це наш хід і є іс��оти
-		if data.currentPlayer == player.Name and data.creaturesCount > 0 then
-			instructionLabel.Text = "ВАШ ХІД! Оберіть істоту."
-			isMyTurn = true
-		else
-			instructionLabel.Text = "Хід гравця " .. data.currentPlayer
-			isMyTurn = false
-		end
+			-- Проверяем, наш ли это ход
+			local isCurrentPlayer = (data.currentPlayer == player.Name)
 
-		-- Ховаємо UI через 3 секунди, якщо це не наш хід або істот немає
-		if data.creaturesCount == 0 then
-			task.delay(3, function()
-				creatureGui.Enabled = false
-			end)
-		else
-			-- Залишаємо UI маленьким збоку, щоб нагадувати кого рухати
-			task.delay(2, function()
-				creatureFrame:TweenSizeAndPosition(
-					UDim2.new(0, 100, 0, 60),
-					UDim2.new(1, -120, 0, 20), -- Пр��вий верхній кут
-					Enum.EasingDirection.Out,
-					Enum.EasingStyle.Quad,
-					0.5
-				)
-				creatureLabel.TextSize = 14
-			end)
+			if isCurrentPlayer then
+				instructionLabel.Text = "ВАШ ХІД! Оберіть істоту "
+					.. (data.creatureName or data.rolledCreature or "")
+				isMyTurn = true
+				isGamePhaseActive = true
+				isCreaturePhase = true
+				currentCreatureTurn = data.rolledCreature
+			else
+				instructionLabel.Text = "Хід гравця "
+					.. (data.currentPlayer or "")
+					.. " ("
+					.. (data.creatureName or data.rolledCreature or "")
+					.. ")"
+				isMyTurn = false
+				isGamePhaseActive = false
+				isCreaturePhase = true
+				currentCreatureTurn = data.rolledCreature
+			end
+
+			-- Делаем UI более заметным
+			creatureFrame.Size = UDim2.new(0, 300, 0, 150)
+			creatureFrame.Position = UDim2.new(0.5, -150, 0.1, 0)
 		end
 	elseif data.phase == "creature_phase_no_creatures" then
 		print("😴 Немає істот типу " .. data.rolledCreature)

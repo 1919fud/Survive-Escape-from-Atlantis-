@@ -364,7 +364,7 @@ function FloodPhase:confirmFlood(player)
 	self:checkFloodTypeProgress()
 
 	-- Завершуємо фазу затоплення
-	self:endFloodPhase()
+	self:endPhase()
 
 	return true
 end
@@ -1984,21 +1984,33 @@ function FloodPhase:countRemainingTiles(tileType)
 	return count
 end
 
-function FloodPhase:endFloodPhase()
-	print(
-		"🌊 Фаза затоплення завершена для гравця: "
-			.. (self.currentFloodPlayer and self.currentFloodPlayer.Name or "?")
-	)
+function FloodPhase:finish(player)
+	print("🌊 Фаза затоплення завершена для гравця:", player.Name)
 
-	self.isActive = false
-	self.selectedTile = nil
+	-- Очищаем подсветку
+	self:clearAllHighlights()
 
-	-- Очищаємо підсвічування
-	self:clearAllFloodHighlights()
+	-- Уведомляем клиентов
+	self.networkManager:getHighlightTilesEvent():FireAllClients({
+		type = "clear_flood_highlights",
+	})
 
-	-- Повертаємося до основної гри
-	if self.mainGame then
-		self.mainGame:startCreaturePhase(self.currentFloodPlayer)
+	-- ЗАПОМНИТЕ: НЕ переключаем ход здесь!
+	-- Фаза затопления завершена, но ход игрока ЕЩЕ НЕ ЗАВЕРШЕН
+
+	-- Начинаем фазу существ
+	if self.mainGame and self.mainGame.creaturePhase then
+		print("🎲 Починаємо фазу істот для гравця:", player.Name)
+		self.mainGame.creaturePhase:start(player, self.mainGame)
+	else
+		print("⚠️ CreaturePhase не ініціалізовано, пропускаємо фазу істот")
+		-- Если нет фазы существ, возвращаемся к основной игре
+		-- Но НЕ переключаем ход!
+		if self.mainGame then
+			self.mainGame.gameState = "main_game"
+			self.mainGame.isGameActive = true
+			print("🎮 Повернення до основної гри для гравця:", player.Name)
+		end
 	end
 end
 function FloodPhase:clearAllFloodHighlights()
@@ -2053,6 +2065,43 @@ function FloodPhase:clearFloodBillboards()
 			end
 		end
 	end
+end
+function FloodPhase:endPhase()
+	print("✅ Фаза затопления завершена")
+
+	-- Очищаем подсветку
+	self.networkManager:getHighlightTilesEvent():FireAllClients({
+		type = "clear",
+	})
+
+	-- Уведомляем всех клиентов
+	self.networkManager:getGameStartEvent():FireAllClients({
+		phase = "flood_phase_complete",
+		message = "🌊 Фаза затопления завершена! Начинается фаза истот...",
+	})
+
+	-- Перевіряємо чи є currentPlayer
+	if self.mainGame and self.currentPlayer then
+		print("🦖 Перехід до фази істот для гравця:", self.currentPlayer.Name)
+		self.mainGame:startCreaturePhase(self.currentPlayer) -- Запускаємо фазу істот
+	else
+		warn(
+			"❌ [FloodPhase] Не вдалося знайти гравця для переходу до фази істот"
+		)
+		-- Якщо немає гравця, все одно запускаємо фазу істот через TurnManager
+		if self.mainGame and self.mainGame.turnManager then
+			local player = self.mainGame.turnManager:getCurrentPlayer()
+			if player then
+				self.mainGame:startCreaturePhase(player)
+			else
+				self.mainGame:returnToMainGameAfterFlood()
+			end
+		else
+			self.mainGame:returnToMainGameAfterFlood()
+		end
+	end
+
+	self.isActive = false
 end
 
 function FloodPhase:getFloodTypeName(tileType)

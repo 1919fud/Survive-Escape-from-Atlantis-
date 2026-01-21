@@ -16,12 +16,17 @@ end
 function CreaturePhase:start(player, mainGame)
 	self.mainGame = mainGame
 	self.networkManager = mainGame.networkManager
+	self.currentPlayer = player -- ВАЖНО: устанавливаем текущего игрока!
+	self.player = player
 
 	if not player then
-		player = self.mainGame.turnManager.currentPlayer
+		if mainGame.turnManager then
+			player = mainGame.turnManager:getCurrentPlayer()
+			self.currentPlayer = player
+			self.player = player
+		end
 	end
 
-	self.currentPlayer = player
 	self.isActive = true
 	self:syncCreatureAttributes()
 
@@ -30,6 +35,7 @@ function CreaturePhase:start(player, mainGame)
 	-- Кидаємо кубик (випадкова істота)
 	local rollIndex = math.random(1, 3)
 	self.rolledCreature = self.creatureTypes[rollIndex]
+
 	print("* Випало на кубику:", self.rolledCreature)
 
 	-- Рахуємо кількість істот цього типу на полі
@@ -50,97 +56,99 @@ function CreaturePhase:start(player, mainGame)
 
 		-- Відправляємо повідомлення про відсутність істот
 		self.networkManager:getGameStartEvent():FireAllClients({
-			phase = "creature_phase_no_rcreatures",
+			phase = "creature_phase_no_creatures",
 			rolledCreature = self.rolledCreature,
 			message = "Немає істот типу " .. self.rolledCreature .. " на полі!",
 		})
 
 		task.wait(3)
 		self:endPhase()
-	else
-		print(
-			"* Знайдено істот: "
-				.. creaturesCount
-				.. ". Перевіряємо доступні ходи..."
-		)
+		return -- ВАЖНО: выходим из функции
+	end
 
-		-- Знаходимо всіх істот цього типу
-		local allCreatures = self:getAllCreaturesOfType(self.rolledCreature)
-		print("* Знайдено конкретних істот: " .. #allCreatures)
+	print(
+		"* Знайдено істот: " .. creaturesCount .. ". Перевіряємо доступні ходи..."
+	)
 
-		local anyCreatureHasMoves = false
-		local creaturesWithoutMoves = {}
+	-- Знаходимо всіх істот цього типу
+	local allCreatures = self:getAllCreaturesOfType(self.rolledCreature)
+	print("* Знайдено конкретних істот: " .. #allCreatures)
 
-		-- Перевіряємо кожну істоту
-		for i, creature in ipairs(allCreatures) do
-			local q = creature:GetAttribute("Q")
-			local r = creature:GetAttribute("R")
-			print("* Перевіряємо істоту #" .. i .. " на Q=" .. q .. " R=" .. r)
+	local anyCreatureHasMoves = false
 
-			-- ВИПРАВЛЕННЯ: Використовуємо правильну функцію
-			local hasMoves = self:doesCreatureHaveValidMoves(creature)
+	-- Перевіряємо кожну істоту
+	for i, creature in ipairs(allCreatures) do
+		local q = creature:GetAttribute("Q")
+		local r = creature:GetAttribute("R")
+		print("* Перевіряємо істоту #" .. i .. " на Q=" .. q .. " R=" .. r)
 
-			-- Встановлюємо атрибут
-			creature:SetAttribute("HasValidMoves", hasMoves)
-			print("* Атрибут HasValidMoves встановлено: " .. tostring(hasMoves))
+		local hasMoves = self:doesCreatureHaveValidMoves(creature)
 
-			if hasMoves then
-				anyCreatureHasMoves = true
-				print(
-					"* ✅ Істота "
-						.. self.rolledCreature
-						.. " на Q="
-						.. q
-						.. " R="
-						.. r
-						.. " має доступні ходи"
-				)
-			else
-				table.insert(creaturesWithoutMoves, {
-					creature = creature,
-					q = q,
-					r = r,
-				})
-				print(
-					"* ❌ Істота "
-						.. self.rolledCreature
-						.. " на Q="
-						.. q
-						.. " R="
-						.. r
-						.. " НЕ має доступних ходів"
-				)
-			end
-		end
+		-- Встановлюємо атрибут
+		creature:SetAttribute("HasValidMoves", hasMoves)
+		print("* Атрибут HasValidMoves встановлено: " .. tostring(hasMoves))
 
-		-- Якщо жодна істота не має доступних ходів
-		if not anyCreatureHasMoves then
+		if hasMoves then
+			anyCreatureHasMoves = true
 			print(
-				"* Всі істоти типу "
+				"* ✅ Істота "
 					.. self.rolledCreature
-					.. " не мають доступних ходів!"
+					.. " на Q="
+					.. q
+					.. " R="
+					.. r
+					.. " має доступні ходи"
 			)
-
-			-- Відправляємо повідомлення всім клієнтам
-			self.networkManager:getGameStartEvent():FireAllClients({
-				phase = "creature_phase_no_moves",
-				rolledCreature = self.rolledCreature,
-				currentPlayer = player.Name,
-				message = "Істоти типу "
-					.. self.rolledCreature
-					.. " не мають доступних ходів!",
-				creatureName = self:getCreatureNameUa(self.rolledCreature),
-			})
-
-			print("* Завершуємо фазу істот через 3 секунди...")
-			task.wait(3)
-			self:endPhase()
 		else
 			print(
-				"* Очікуємо хід гравця істотою... (Знайдено: " .. creaturesCount .. ")"
+				"* ❌ Істота "
+					.. self.rolledCreature
+					.. " на Q="
+					.. q
+					.. " R="
+					.. r
+					.. " НЕ має доступних ходів"
 			)
 		end
 	end
+
+	-- Якщо жодна істота не має доступних ходів
+	if not anyCreatureHasMoves then
+		print(
+			"* Всі істоти типу "
+				.. self.rolledCreature
+				.. " не мають доступних ходів!"
+		)
+
+		-- Відправляємо повідомлення всім клієнтам
+		self.networkManager:getGameStartEvent():FireAllClients({
+			phase = "creature_phase_no_moves",
+			rolledCreature = self.rolledCreature,
+			currentPlayer = player.Name,
+			message = "Істоти типу "
+				.. self.rolledCreature
+				.. " не мають доступних ходів!",
+			creatureName = self:getCreatureNameUa(self.rolledCreature),
+		})
+
+		print("* Завершуємо фазу істот через 3 секунди...")
+		task.wait(3)
+		self:endPhase()
+		return -- ВАЖНО: выходим из функции
+	end
+
+	print("* Очікуємо хід гравця істотою... (Знайдено: " .. creaturesCount .. ")")
+
+	-- ОБНОВЛЕНО: Если есть существа с ходами, отправляем клиентам уведомление
+	--[[self.networkManager:getGameStartEvent():FireAllClients({
+		phase = "creature_phase_start",
+		rolledCreature = self.rolledCreature,
+		currentPlayer = player.Name,
+		creaturesCount = creaturesCount,
+		message = "Оберіть істоту типу " .. self.rolledCreature .. " для переміщення",
+		creatureName = self:getCreatureNameUa(self.rolledCreature),
+	})]]
+	--
 end
 function CreaturePhase:doesCreatureHaveValidMoves(creature)
 	local creatureType = creature:GetAttribute("CreatureType")
@@ -487,27 +495,7 @@ function CreaturePhase:checkKaijuAvailableMoves(q, r)
 		local targetR = r + dir[2]
 
 		-- Перевіряємо чи доступний цей хід
-		local kaijuTest = self:new()
-		kaijuTest.mainGame = self.mainGame
-		local success = kaijuTest:moveKaiju({
-			GetAttribute = function(attr)
-				if attr == "Q" then
-					return q
-				end
-				if attr == "R" then
-					return r
-				end
-				if attr == "CreatureType" then
-					return "Kaiju"
-				end
-				if attr == "IsKaiju" then
-					return true
-				end
-				return nil
-			end,
-			SetAttribute = function() end,
-		}, targetQ, targetR)
-
+		local success = self:canKaijuMoveTo(q, r, targetQ, targetR, 1)
 		if success then
 			return true
 		end
@@ -558,8 +546,94 @@ function CreaturePhase:checkKaijuAvailableMoves(q, r)
 	return false
 end
 
+function CreaturePhase:canKaijuMoveTo(startQ, startR, targetQ, targetR, distance)
+	print(
+		"[DEBUG] canKaijuMoveTo: з Q="
+			.. startQ
+			.. " R="
+			.. startR
+			.. " на Q="
+			.. targetQ
+			.. " R="
+			.. targetR
+			.. " (дистанція "
+			.. distance
+			.. ")"
+	)
+
+	-- Перевіряємо що цільовий тайл існує
+	local tile = self.mainGame.mapManager:getTileAtPosition(targetQ, targetR)
+	if not tile then
+		print(" ❌ Цільовий тайл не існує")
+		return false
+	end
+
+	-- Кайдзю НЕ может ходить на активный вулкан
+	if tile.isVolcanoActive and tile.isBlocked then
+		print(" ❌ Кайдзю не може ходити на активний вулкан!")
+		return false
+	end
+
+	-- Перевіряємо що на цьому тайлі немає іншого кайдзю (крім себе)
+	local otherKaiju = self:getCreatureAt(targetQ, targetR, "Kaiju")
+	if otherKaiju and (otherKaiju:GetAttribute("Q") ~= startQ or otherKaiju:GetAttribute("R") ~= startR) then
+		print(" ❌ На цьому тайлі вже є інший кайдзю!")
+		return false
+	end
+
+	-- Для дистанції 2 перевіряємо проміжні клітинки
+	if distance == 2 then
+		print(" Перевіряємо проміжні клітинки для дистанції 2")
+
+		local intermediateFound = false
+		local directions = {
+			{ 1, 0 },
+			{ 1, -1 },
+			{ 0, -1 },
+			{ -1, 0 },
+			{ -1, 1 },
+			{ 0, 1 },
+		}
+
+		-- Перевіряємо всі можливі проміжні точки
+		for _, dir in ipairs(directions) do
+			local midQ = startQ + dir[1]
+			local midR = startR + dir[2]
+
+			-- Перевіряємо, що це сусід від старту
+			if self:getHexDistance(startQ, startR, midQ, midR) == 1 then
+				-- Перевіряємо, що це також сусід від цілі
+				if self:getHexDistance(midQ, midR, targetQ, targetR) == 1 then
+					-- Перевіряємо, що проміжна клітинка не активний вулкан
+					local interTile = self.mainGame.mapManager:getTileAtPosition(midQ, midR)
+					if interTile and not (interTile.isVolcanoActive and interTile.isBlocked) then
+						intermediateFound = true
+						print(
+							" ✅ Знайдено доступний проміжний шлях через Q="
+								.. midQ
+								.. " R="
+								.. midR
+						)
+						break
+					end
+				end
+			end
+		end
+
+		if not intermediateFound then
+			print(" ❌ Не знайдено доступного проміжного шляху для кайдзю")
+			return false
+		end
+	end
+
+	print(" ✅ Хід доступний для кайдзю")
+	return true
+end
+
 -- Перевірка доступних ходів для восьминога
 function CreaturePhase:checkOctopusAvailableMoves(q, r)
+	print("[DEBUG] Перевірка ходів для восьминога на Q=" .. q .. " R=" .. r)
+
 	local directions = {
 		{ 1, 0 },
 		{ 1, -1 },
@@ -569,39 +643,63 @@ function CreaturePhase:checkOctopusAvailableMoves(q, r)
 		{ 0, 1 },
 	}
 
-	-- Перевіряємо всі можливі напрямки (1 крок)
+	-- Перевіряємо всі сусідні тайли (1 крок)
 	for _, dir in ipairs(directions) do
 		local targetQ = q + dir[1]
 		local targetR = r + dir[2]
 
-		-- Перевіряємо чи доступний цей хід
-		local octopusTest = self:new()
-		octopusTest.mainGame = self.mainGame
-		local success = octopusTest:moveOctopus({
-			GetAttribute = function(attr)
-				if attr == "Q" then
-					return q
-				end
-				if attr == "R" then
-					return r
-				end
-				if attr == "CreatureType" then
-					return "Octopus"
-				end
-				if attr == "IsOctopus" then
-					return true
-				end
-				return nil
-			end,
-			SetAttribute = function() end,
-		}, targetQ, targetR)
-
+		local success = self:canOctopusMoveTo(q, r, targetQ, targetR)
 		if success then
 			return true
 		end
 	end
 
 	return false
+end
+
+function CreaturePhase:canOctopusMoveTo(startQ, startR, targetQ, targetR)
+	print("[DEBUG] canOctopusMoveTo: з Q=" .. startQ .. " R=" .. startR .. " на Q=" .. targetQ .. " R=" .. targetR)
+
+	-- Перевіряємо що цільовий тайл існує
+	local tile = self.mainGame.mapManager:getTileAtPosition(targetQ, targetR)
+	if not tile then
+		print(" ❌ Цільовий тайл не існує")
+		return false
+	end
+
+	print(" Тайл існує, isWater: " .. tostring(tile.isWater))
+
+	-- Восьминіг може рухатися тільки на водні тайли
+	if not tile.isWater then
+		print(" ❌ Це не водний тайл")
+		return false
+	end
+
+	-- Перевіряємо що на цьому водному тайлі немає острова (як у акули)
+	local hasLandAbove = self:hasLandAboveWater(targetQ, targetR)
+	print(" Перевірка острова зверху: " .. tostring(hasLandAbove))
+
+	if hasLandAbove then
+		print(" ❌ На цьому водному тайлі є острів зверху")
+		return false
+	end
+
+	-- Перевіряємо що на цьому тайлі немає іншого восьминога
+	local otherOctopus = self:getCreatureAt(targetQ, targetR, "Octopus")
+	if otherOctopus then
+		print(" ❌ На цьому тайлі вже є інший восьминіг")
+		return false
+	end
+
+	-- Восьминіг може ходити тільки на 1 клітинку
+	local distance = self:getHexDistance(startQ, startR, targetQ, targetR)
+	if distance ~= 1 then
+		print(" ❌ Восьминіг може рухатися лише на 1 ділянку")
+		return false
+	end
+
+	print(" ✅ Хід доступний для восьминога")
+	return true
 end
 
 function CreaturePhase:syncCreatureAttributes()
@@ -822,6 +920,10 @@ function CreaturePhase:moveOctopus(octopus, q, r)
 		print("❌ Восьминіг може рухатися тільки на водні ділянки")
 		return false
 	end
+	if not self:canOctopusMoveTo(startQ, startR, q, r) then
+		print("❌ Восьминіг не може рухатися на цю позицію")
+		return false
+	end
 
 	self:updateCreaturePosition(octopus, q, r)
 
@@ -882,7 +984,16 @@ function CreaturePhase:moveKaiju(kaiju, q, r)
 	local startQ = kaiju:GetAttribute("Q")
 	local startR = kaiju:GetAttribute("R")
 
-	print("🦖 Спроба ходу кайдзю з Q=" .. startQ .. " R=" .. startR .. " на Q=" .. q .. " R=" .. r)
+	print(
+		"🦖 Спроба ходу кайдзю з Q="
+			.. tostring(startQ)
+			.. " R="
+			.. tostring(startR)
+			.. " на Q="
+			.. q
+			.. " R="
+			.. r
+	)
 
 	-- Кайдзю может ходить на 1-2 клетки
 	local distance = self:getHexDistance(startQ, startR, q, r)
@@ -1076,9 +1187,14 @@ function CreaturePhase:getAvailableKaijuMoves(kaiju)
 end
 
 function CreaturePhase:getHexDistance(q1, r1, q2, r2)
-	local dx = q2 - q1
-	local dy = r2 - r1
-	return (math.abs(dx) + math.abs(dy) + math.abs(dx + dy)) / 2
+	-- Проверка на nil
+	if not q1 or not r1 or not q2 or not r2 then
+		warn("⚠️ getHexDistance отримав nil координати! Q1:", q1, "R1:", r1, "Q2:", q2, "R2:", r2)
+		return 9999
+	end
+
+	-- Формула гексагональної відстані
+	return (math.abs(q1 - q2) + math.abs(r1 - r2) + math.abs((q1 + r1) - (q2 + r2))) / 2
 end
 
 function CreaturePhase:getIntermediateHex(q1, r1, q2, r2)
@@ -1494,10 +1610,82 @@ function CreaturePhase:getCreatureNameUa(t)
 	return t
 end
 
-function CreaturePhase:endPhase()
-	self.isActive = false
+function CreaturePhase:finish(player)
 	print("✅ Фаза істот завершена.")
-	self.mainGame:returnToMainGame()
+
+	-- Очищаем подсветку
+	self.mainGame.networkManager:getHighlightTilesEvent():FireAllClients({
+		type = "clear",
+	})
+
+	-- Уведомляем всех, что фаза существ завершена
+	self.mainGame.networkManager:getGameStartEvent():FireAllClients({
+		phase = "creature_phase_complete",
+		message = "🎲 Фаза істот завершена!",
+	})
+
+	-- Возвращаемся к основной игре
+	self.mainGame.gameState = "main_game"
+	self.mainGame.isGameActive = true
+
+	-- ПЕРЕХОДИМ К СЛЕДУЮЩЕМУ ИГРОКУ
+	local nextPlayer = self.mainGame.turnManager:nextTurn()
+
+	if nextPlayer then
+		print("🎮 Переход хода после фазы существ к:", nextPlayer.Name)
+		-- Запускаем ход следующего игрока
+		self.mainGame:startPlayerTurn()
+	else
+		print("❌ Не удалось определить следующего игрока")
+	end
+
+	self.isActive = false
+end
+
+-- Функция завершения фазы существ
+function CreaturePhase:endPhase()
+	print(" ✅ Завершення фази істот")
+
+	-- 1. Повідомляємо ВСІХ клієнтів, что фаза істот завершена
+	if self.mainGame and self.mainGame.networkManager then
+		-- Очищаємо всі підсвічування
+		self.mainGame.networkManager:getHighlightTilesEvent():FireAllClients({
+			type = "clear",
+			message = "Очищення всіх підсвічувань після фази істот",
+		})
+
+		-- Повідомляємо про завершення фази істот
+		self.mainGame.networkManager:getGameStartEvent():FireAllClients({
+			phase = "creature_phase_complete",
+			message = "🎲 Фаза істот завершена!",
+			clearUI = true,
+		})
+	end
+
+	self.isActive = false
+
+	-- ВАЖНО: Устанавливаем игру в активное состояние
+	if self.mainGame then
+		self.mainGame.isGameActive = true
+		self.mainGame.gameState = "main_game"
+	end
+
+	-- 2. Передаємо хід НАСТУПНОМУ гравцю
+	if self.mainGame and self.mainGame.turnManager then
+		print(" 🔄 Перехід ходу до наступного гравця...")
+		local nextPlayer = self.mainGame.turnManager:nextTurn()
+
+		if nextPlayer then
+			print(" ✅ Наступний гравець: " .. nextPlayer.Name)
+
+			-- Запускаємо хід наступного гравця
+			self.mainGame:startPlayerTurn()
+		else
+			print(" ⚠️ Не вдалося визначити наступного гравця")
+		end
+	else
+		warn(" ⚠️ [CreaturePhase] TurnManager не знайдено!")
+	end
 end
 
 return CreaturePhase

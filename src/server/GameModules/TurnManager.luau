@@ -1,4 +1,3 @@
--- TurnManager.lua
 local TurnManager = {}
 TurnManager.__index = TurnManager
 
@@ -8,11 +7,13 @@ function TurnManager.new()
 	self.currentPlayerIndex = 1
 	self.currentRound = 1
 	self.maxExplorersPerPlayer = 4
-	self.placementCompleted = {} -- Трекаємо хто завершив розміщення
+	self.placementCompleted = {}
 
 	self.gamePhase = "placement" -- placement, main_game
 	self.maxActions = 3
-	self.PlayerActionsUsed = {}
+	self.playerActionsUsed = {} -- Виправлено регістр (було PlayerActionsUsed)
+
+	self.mainGame = nil -- Сюди ми запишемо посилання на MainGame
 	return self
 end
 
@@ -20,10 +21,10 @@ function TurnManager:initialize(players)
 	local playerList = {}
 	for player, _ in pairs(players) do
 		table.insert(playerList, player)
-		self.placementCompleted[player] = false -- Спочатку всі не завершили
+		self.placementCompleted[player] = false
 	end
 
-	-- Перемешиваем игроков
+	-- Перемішуємо гравців
 	for i = #playerList, 2, -1 do
 		local j = math.random(i)
 		playerList[i], playerList[j] = playerList[j], playerList[i]
@@ -39,27 +40,21 @@ function TurnManager:initialize(players)
 	end
 end
 
--- Переход к следующему игроку
+-- Переход к следующему игроку (для фази розміщення)
 function TurnManager:nextPlayer()
-	-- НЕ помечаємо поточного гравця як завершившего
-	-- Він може ще ставити дослідників у наступних колах
-
-	-- Шукаємо наступного гравця який ще не завершив
 	local startIndex = self.currentPlayerIndex
 	local attempts = 0
 
 	repeat
-		self.currentPlayerIndex += 1
-		attempts += 1
+		self.currentPlayerIndex = self.currentPlayerIndex + 1
+		attempts = attempts + 1
 
-		-- Якщо дошли до кінця списку, починаємо з початку
 		if self.currentPlayerIndex > #self.playersOrder then
 			self.currentPlayerIndex = 1
-			self.currentRound += 1
+			self.currentRound = self.currentRound + 1
 			print("🔄 Раунд:", self.currentRound)
 		end
 
-		-- Якщо перевірили всіх гравців, виходимо
 		if attempts >= #self.playersOrder then
 			break
 		end
@@ -78,12 +73,12 @@ function TurnManager:nextTurn()
 	print("🎮 Завершення ходу гравця:", currentPlayer.Name)
 
 	-- Переходимо до наступного гравця
-	self.currentPlayerIndex += 1
+	self.currentPlayerIndex = self.currentPlayerIndex + 1
 
-	-- Якщо дошли до кінця списку, починаємо новий раунд
+	-- Якщо дійшли до кінця списку, починаємо новий раунд
 	if self.currentPlayerIndex > #self.playersOrder then
 		self.currentPlayerIndex = 1
-		self.currentRound += 1
+		self.currentRound = self.currentRound + 1
 		print("🔄 Новий раунд основної гри:", self.currentRound)
 	end
 
@@ -91,36 +86,42 @@ function TurnManager:nextTurn()
 
 	-- Скидаємо лічильник дій для нового гравця
 	self.playerActionsUsed[nextPlayer] = 0
-
 	print("🎮 Перехід ходу: ", currentPlayer.Name, "→", nextPlayer.Name)
+
+	-- [ВИПРАВЛЕННЯ] Викликаємо MainGame для старту ходу
+	if self.mainGame then
+		print("🔄 [TurnManager] Ініціалізація ходу через MainGame для: " .. nextPlayer.Name)
+		-- Ця функція скине дії візуально і відправить подію клієнту
+		-- ВИПРАВЛЕННЯ: використовуємо startPlayerTurn замість startTurn
+		self.mainGame:startPlayerTurn()
+	else
+		warn(
+			"⚠️ [TurnManager] self.mainGame is nil! Гравець змінився, але клієнт не повідомлений."
+		)
+	end
+
 	return nextPlayer
 end
 
 function TurnManager:useAction(player)
 	if self.gamePhase ~= "main_game" then
-		warn("❌ Не основна фаза гри!")
 		return false
 	end
-
 	if player ~= self:getCurrentPlayer() then
-		warn("❌ Не ваш хід!")
 		return false
 	end
 
 	local actionsUsed = self.playerActionsUsed[player] or 0
 
 	if actionsUsed >= self.maxActions then
-		warn("❌ Усі монети використані!")
 		return false
 	end
 
 	self.playerActionsUsed[player] = actionsUsed + 1
-
 	return true
 end
 
 function TurnManager:useMultipleActions(player, count)
-	-- Проверяем, достаточно ли действий
 	local actionsUsed = self.playerActionsUsed[player] or 0
 
 	if actionsUsed + count > self.maxActions then
@@ -129,14 +130,12 @@ function TurnManager:useMultipleActions(player, count)
 	end
 
 	self.playerActionsUsed[player] = actionsUsed + count
-
 	print(
 		"💰 Використано",
 		count,
 		"дій. Залишилось:",
 		self.maxActions - self.playerActionsUsed[player]
 	)
-
 	return true
 end
 
@@ -144,17 +143,14 @@ function TurnManager:getRemainingActions(player)
 	if self.gamePhase ~= "main_game" then
 		return 0
 	end
-
 	local actionsUsed = self.playerActionsUsed[player] or 0
 	return math.max(0, self.maxActions - actionsUsed)
 end
 
--- Перевіряємо, чи всі гравці завершили розміщення
 function TurnManager:allPlayersFinished(playersData)
 	if not playersData then
 		return false
 	end
-
 	for _, player in ipairs(self.playersOrder) do
 		local playerData = playersData[player]
 		if playerData and playerData.explorersPlaced < self.maxExplorersPerPlayer then
@@ -196,58 +192,25 @@ function TurnManager:startPlayerTurn(player)
 	if self.gamePhase ~= "main_game" then
 		return false
 	end
-
 	if player ~= self:getCurrentPlayer() then
 		return false
 	end
 
-	-- Скидаємо лічильник дій для початку нового ходу
 	self.playerActionsUsed[player] = 0
-
 	print("🎮 Початок ходу гравця:", player.Name)
 	return true
 end
 
 function TurnManager:startMainGamePhase()
 	print("🎮 [TURN MANAGER] Основна фаза гри розпочата!")
-
 	self.gamePhase = "main_game"
 	self.currentPlayerIndex = 1
 	self.currentRound = 1
-
-	-- Скидаємо лічильники дій для всіх гравців
 	self.playerActionsUsed = {}
 	for _, player in ipairs(self.playersOrder) do
 		self.playerActionsUsed[player] = 0
 	end
-
-	print("🎮 Основна фаза гри розпочата!")
 	return self:getCurrentPlayer()
-end
-
-function TurnManager:endPlayerTurn(player)
-	print("🎮 [TURN MANAGER] Завершення ходу гравця:", player.Name)
-
-	-- Скидаємо дії для цього гравця
-	self.remainingActions[player] = 0
-
-	-- Переходимо до наступного гравця
-	self.currentPlayerIndex = self.currentPlayerIndex + 1
-	if self.currentPlayerIndex > #self.playersOrder then
-		self.currentPlayerIndex = 1
-		self.currentRound = self.currentRound + 1
-		print("🔄 [TURN MANAGER] Новий раунд:", self.currentRound)
-	end
-
-	local nextPlayer = self.playersOrder[self.currentPlayerIndex]
-
-	-- Скидаємо дії для нового гравця
-	self.remainingActions[nextPlayer] = self.maxActions
-
-	print("🎮 [TURN MANAGER] Наступний хід грає:", nextPlayer.Name)
-	print("  Залишилось дій:", self.remainingActions[nextPlayer])
-
-	return nextPlayer
 end
 
 return TurnManager
