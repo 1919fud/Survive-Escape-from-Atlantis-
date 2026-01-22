@@ -295,7 +295,7 @@ function AtlantisGame:onPlayerJoined(player)
 	self.players[player] = {
 		name = player.Name,
 		explorersPlaced = 0,
-		maxExplorers = 4,
+		maxExplorers = 10,
 		explorers = {},
 	}
 

@@ -6,7 +6,7 @@ function TurnManager.new()
 	self.playersOrder = {}
 	self.currentPlayerIndex = 1
 	self.currentRound = 1
-	self.maxExplorersPerPlayer = 4
+	self.maxExplorersPerPlayer = 10
 	self.placementCompleted = {}
 
 	self.gamePhase = "placement" -- placement, main_game
