@@ -812,6 +812,49 @@ function AtlantisGame:startMainGamePhase()
 	self:startPlayerTurn()
 end
 
+function AtlantisGame:getAllSavedExplorers()
+	local allSavedExplorers = {}
+
+	-- 1. Додаємо збережених дослідників з основної гри
+	if self.savedExplorers then
+		for _, saved in ipairs(self.savedExplorers) do
+			table.insert(allSavedExplorers, {
+				explorerId = saved.explorerId,
+				player = saved.player,
+				playerName = saved.playerName,
+				treasureValue = saved.treasureValue,
+				q = saved.q,
+				r = saved.r,
+				savedAt = saved.savedAt or os.time(),
+				source = "main_game_safe_tile",
+			})
+		end
+	end
+
+	-- 2. Перевіряємо, чи є інші джерела збережених дослідників
+	-- Наприклад, з PlacementPhase або інших систем
+	if self.placementPhase and self.placementPhase.savedExplorers then
+		for _, saved in ipairs(self.placementPhase.savedExplorers) do
+			table.insert(allSavedExplorers, {
+				explorerId = saved.explorerId,
+				player = saved.player,
+				playerName = saved.playerName,
+				treasureValue = saved.treasureValue,
+				q = saved.q,
+				r = saved.r,
+				savedAt = saved.savedAt or os.time(),
+				source = "placement_phase",
+			})
+		end
+	end
+
+	-- 3. Можна також перевірити інші можливі джерела
+	-- Наприклад, дослідників, які вціліли після затоплення або атак істот
+
+	print("📊 Всього збережених дослідників:", #allSavedExplorers)
+	return allSavedExplorers
+end
+
 function AtlantisGame:endGameNoExplorers()
 	print("🎯 ГРА ЗАВЕРШЕНА! Немає дослідників на полі!")
 
@@ -830,39 +873,146 @@ function AtlantisGame:endGameNoExplorers()
 		self.turnManager.isActive = false
 	end
 
-	-- Визначаємо переможця (той, хто зберіг найбільше дослідників)
-	local winner = nil
-	local maxSaved = 0
+	-- Рахуємо бали кожного гравця за збережених дослідників
+	local allSavedExplorers = self:getAllSavedExplorers()
+	local playerScores = {}
+	local maxScore = 0
 
-	for player, playerData in pairs(self.players) do
-		local savedCount = 0
-		for _, saved in ipairs(self.savedExplorers) do
-			if saved.playerName == player.Name then
-				savedCount = savedCount + 1
+	print("💰 РОЗРАХУНОК РЕЗУЛЬТАТІВ:")
+	print("---------------------------")
+
+	for _, saved in ipairs(allSavedExplorers) do
+		local playerName = saved.playerName
+
+		if not playerScores[playerName] then
+			playerScores[playerName] = {
+				totalScore = 0,
+				savedExplorers = {},
+				explorerCount = 0,
+			}
+		end
+
+		-- Додаємо дослідника до списку гравця
+		table.insert(playerScores[playerName].savedExplorers, {
+			treasureValue = saved.treasureValue,
+			q = saved.q,
+			r = saved.r,
+			source = saved.source,
+		})
+
+		-- Додаємо значення скарбів до загальної суми
+		playerScores[playerName].totalScore = playerScores[playerName].totalScore + saved.treasureValue
+		playerScores[playerName].explorerCount = playerScores[playerName].explorerCount + 1
+
+		-- Оновлюємо максимальний рахунок
+		if playerScores[playerName].totalScore > maxScore then
+			maxScore = playerScores[playerName].totalScore
+		end
+	end
+
+	-- Логуємо результати для кожного гравця
+	for playerName, scoreData in pairs(playerScores) do
+		print("📊 Гравець " .. playerName .. ":")
+		print("   Збережено дослідників: " .. scoreData.explorerCount)
+
+		-- Формуємо список скарбів для цього гравця
+		local treasuresList = ""
+		for i, explorer in ipairs(scoreData.savedExplorers) do
+			print(
+				"     "
+					.. i
+					.. ". Цінність: "
+					.. explorer.treasureValue
+					.. " (Q="
+					.. explorer.q
+					.. ", R="
+					.. explorer.r
+					.. ", Джерело: "
+					.. (explorer.source or "main_game")
+					.. ")"
+			)
+			treasuresList = treasuresList .. tostring(explorer.treasureValue)
+			if i < #scoreData.savedExplorers then
+				treasuresList = treasuresList .. ", "
 			end
 		end
 
-		print("📊 Гравець", player.Name, "зберіг", savedCount, "дослідників")
+		print("   Загальна сума: " .. scoreData.totalScore)
+		print("   Список скарбів: [" .. treasuresList .. "]")
+	end
 
-		if savedCount > maxSaved then
-			maxSaved = savedCount
-			winner = player
+	-- Перевіряємо нічию (знаходимо всіх гравців з максимальним рахунком)
+	local winners = {}
+	for playerName, scoreData in pairs(playerScores) do
+		if scoreData.totalScore == maxScore and maxScore > 0 then
+			-- Знаходимо об'єкт гравця за іменем
+			for playerObj, _ in pairs(self.players) do
+				if playerObj.Name == playerName then
+					table.insert(winners, playerObj)
+					break
+				end
+			end
 		end
 	end
 
-	-- Якщо ніхто не зберіг дослідників - перший гравець
-	if not winner then
-		winner = next(self.players)
+	local winnerName = ""
+	if #winners == 1 then
+		winnerName = winners[1].Name
+		print("🏆 Переможець: " .. winnerName .. " з сумою " .. maxScore .. " балів!")
+	elseif #winners > 1 then
+		-- Нічия
+		local winnerNames = ""
+		for i, playerObj in ipairs(winners) do
+			winnerNames = winnerNames .. playerObj.Name
+			if i < #winners then
+				winnerNames = winnerNames .. ", "
+			end
+		end
+		winnerName = "Нічия між: " .. winnerNames
+		print(
+			"🤝 Нічия між гравцями: " .. winnerNames .. " з сумою " .. maxScore .. " балів"
+		)
+	else
+		-- Ніхто не зберіг дослідників
+		local randomWinner = next(self.players)
+		winnerName = randomWinner and randomWinner.Name or "Невідомо"
+		print(
+			"😢 Ніхто не зберіг дослідників. Переможець випадковий: "
+				.. winnerName
+		)
 	end
 
-	local winnerName = winner and winner.Name or "Невідомо"
+	-- Готуємо детальну інформацію для UI
+	local detailedScores = {}
+	for playerName, scoreData in pairs(playerScores) do
+		local treasureValues = {}
+		for _, explorer in ipairs(scoreData.savedExplorers) do
+			table.insert(treasureValues, explorer.treasureValue)
+		end
 
-	-- Уведомляємо всіх клієнтів про завершення гри
+		table.insert(detailedScores, {
+			playerName = playerName,
+			totalScore = scoreData.totalScore,
+			explorerCount = scoreData.explorerCount,
+			treasureValues = treasureValues,
+			isWinner = (scoreData.totalScore == maxScore and maxScore > 0),
+		})
+	end
+
+	-- Сортуємо за кількістю балів (від більшого до меншого)
+	table.sort(detailedScores, function(a, b)
+		return a.totalScore > b.totalScore
+	end)
+
+	-- Уведомляємо всіх клієнтів про завершення гри з детальною інформацією
 	self.networkManager:getGameStartEvent():FireAllClients({
 		phase = "game_over",
 		message = "🎯 ГРА ЗАВЕРШЕНА! Всі дослідники покинули острів!",
 		winner = winnerName,
 		reason = "no_explorers",
+		detailedScores = detailedScores,
+		maxScore = maxScore,
+		volcanoCount = self.floodPhase.activatedVolcanoes or 0,
 	})
 
 	-- Запускаємо UI завершення гри на клієнті
@@ -873,9 +1023,11 @@ function AtlantisGame:endGameNoExplorers()
 		message = "Всі дослідники покинули острів або зникли!",
 		winner = winnerName,
 		volcanoCount = self.floodPhase.activatedVolcanoes or 0,
+		detailedScores = detailedScores,
+		maxScore = maxScore,
 	})
 
-	print("🏆 Переможець:", winnerName)
+	print("🏁 Гра завершена. Результати відправлені всім гравцям.")
 end
 
 function AtlantisGame:startFloodPhase(player)
@@ -1866,7 +2018,7 @@ function AtlantisGame:saveExplorerToSafeTile(explorer, player, q, r)
 			local tween = tweenService:Create(obj.PrimaryPart, tweenInfo, { Position = targetPosition })
 			tween:Play()
 
-			-- Удаляем после анимации
+			-- Удаляем после анимац��и
 			game:GetService("Debris"):AddItem(obj, 3)
 
 			print("✨ Визуальный эффект сохранения применен")
@@ -1881,38 +2033,62 @@ function AtlantisGame:saveExplorerToSafeTile(explorer, player, q, r)
 		"✅ Исследователь успешно сохранен. Всего сохранено:",
 		#self.savedExplorers
 	)
-	print("🎯 Осталось действий у игрока:", self.turnManager:getRemainingActions(player))
+	print("🎯 ��сталось действий у игрока:", self.turnManager:getRemainingActions(player))
 end
 
 -- Функция проверки условий победы
 function AtlantisGame:checkWinCondition(player)
 	local savedCount = 0
 	local playerName = player.Name
+	local totalTreasureValue = 0
 
-	-- Считаем сколько исследователей сохранил этот игрок
+	-- Рахуємо скільки дослідників збережено та їхню вартість скарбів
 	for _, saved in ipairs(self.savedExplorers) do
 		if saved.playerName == playerName then
 			savedCount = savedCount + 1
+			totalTreasureValue = totalTreasureValue + saved.treasureValue
 		end
 	end
 
 	print("📊 Игрок " .. playerName .. " сохранил " .. savedCount .. " исследователей")
+	print("💰 Общая стоимость сокровищ: " .. totalTreasureValue)
 
-	-- Если игрок сохранил всех своих исследователей (по умолчанию 4)
+	-- Перевіряємо, чи всі дослідники збережені
 	local playerData = self.players[player]
-	local totalExplorers = playerData.maxExplorers or 4
+	local totalExplorers = playerData.maxExplorers or 10
 
 	if savedCount >= totalExplorers then
 		print(
 			"🎉 Игрок " .. playerName .. " выиграл! Все исследователи сохранены!"
 		)
 
+		-- Рахуємо бали всіх гравців для фінального результату
+		local playerScores = {}
+		local maxScore = 0
+		local finalWinner = playerName
+
+		for p, pData in pairs(self.players) do
+			local pName = p.Name
+			playerScores[pName] = 0
+
+			for _, saved in ipairs(self.savedExplorers) do
+				if saved.playerName == pName then
+					playerScores[pName] = playerScores[pName] + saved.treasureValue
+				end
+			end
+
+			if playerScores[pName] > maxScore then
+				maxScore = playerScores[pName]
+				finalWinner = pName
+			end
+		end
+
 		-- Уведомляем всех о победе
 		self.networkManager:getGameStartEvent():FireAllClients({
 			phase = "game_over",
-			message = "🎉 Игрок " .. playerName .. " выиграл!",
-			winner = playerName,
-			savedExplorers = savedCount,
+			message = "🎉 Игрок " .. playerName .. " сохранил всех исследователей!",
+			winner = finalWinner,
+			detailedScores = playerScores,
 		})
 
 		-- Завершаем игру
@@ -1929,7 +2105,7 @@ function AtlantisGame:getBoatController(boatId)
 	local playerCounts = {}
 	local maxCount = 0
 
-	-- Рахуємо кількість дослідників кожного гравця на човні
+	-- Рахуємо кількість дослідників ��ожного гравця на човні
 	for _, playerData in pairs(self.players) do
 		if playerData.explorers then
 			for _, explorer in ipairs(playerData.explorers) do

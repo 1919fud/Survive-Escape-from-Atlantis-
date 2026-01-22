@@ -2291,46 +2291,102 @@ end
 function FloodPhase:endPhase()
 	print("✅ Фаза затопления завершена")
 
-	-- ВИПРАВЛЕННЯ: Перевіряємо, чи гра не завершена через вулкани
-	if self.mainGame and self.mainGame.gameState == "finished" then
-		print("⚠️ Гра вже завершена, не запускаємо фазу істот")
+	-- Очищаем подсветки
+	self:clearAllFloodHighlights()
+
+	-- Проверяем условия окончания игры (3 вулкана)
+	if self.activatedVolcanoes >= 3 then
+		print("🔥 ГРА ЗАКІНЧЕНА! Активовано 3 вулкани!")
+
+		-- Зупиняємо всі системи
+		if self.creaturePhase then
+			self.creaturePhase.isActive = false
+			print("🛑 Фаза істот зупинена після завершення гри")
+		end
+
+		if self.mainGame and self.mainGame.turnManager then
+			self.mainGame.turnManager.isActive = false
+			print("🛑 TurnManager зупинено після завершення гри")
+		end
+
+		-- ВИПРАВЛЕННЯ: Викликаємо функцію завершення гри через MainGame
+		-- для правильного підрахунку всіх збережених дослідників
+		if self.mainGame and self.mainGame.endGameNoExplorers then
+			print("📊 Передача управління завершення гри до MainGame...")
+			self.mainGame:endGameNoExplorers()
+		else
+			-- Старий код (на випадок якщо MainGame недоступний)
+			local savedCounts = {}
+			local playerScores = {}
+			local maxScore = 0
+
+			-- Собираем информацию о сохраненных исследователях
+			if self.mainGame and self.mainGame.savedExplorers then
+				for _, saved in ipairs(self.mainGame.savedExplorers) do
+					local playerName = saved.playerName
+					savedCounts[playerName] = (savedCounts[playerName] or 0) + 1
+					playerScores[playerName] = (playerScores[playerName] or 0) + saved.treasureValue
+
+					if playerScores[playerName] > maxScore then
+						maxScore = playerScores[playerName]
+					end
+				end
+			end
+
+			-- Логгируем результаты
+			for playerName, count in pairs(savedCounts) do
+				print("📊 Гравець " .. playerName .. " зберіг " .. count .. " дослідників")
+			end
+
+			-- Находим победителя
+			local winners = {}
+			for playerName, score in pairs(playerScores) do
+				if score == maxScore and maxScore > 0 then
+					table.insert(winners, playerName)
+				end
+			end
+
+			local winnerName = ""
+			if #winners == 1 then
+				winnerName = winners[1]
+				print("🏆 Переможець: " .. winnerName .. " з сумою " .. maxScore .. " балів!")
+			elseif #winners > 1 then
+				winnerName = "Нічия між: " .. table.concat(winners, ", ")
+				print(
+					"🤝 Нічия між гравцями: "
+						.. table.concat(winners, ", ")
+						.. " з сумою "
+						.. maxScore
+						.. " балів"
+				)
+			else
+				winnerName = "Невідомо"
+				print("😢 Ніхто не зберіг дослідників")
+			end
+
+			-- Отправляем уведомление игрокам
+			if self.networkManager then
+				self.networkManager:getGameStartEvent():FireAllClients({
+					phase = "game_over",
+					message = "🔥 ГРА ЗАКІНЧЕНА! Активовано 3 вулкани!",
+					winner = winnerName,
+					reason = "volcano",
+					volcanoCount = self.activatedVolcanoes,
+				})
+			end
+		end
+
 		return
 	end
 
-	-- Очищаем подсветку
-	self.networkManager:getHighlightTilesEvent():FireAllClients({
-		type = "clear",
-	})
-
-	-- Уведомляем всех клиентов
-	self.networkManager:getGameStartEvent():FireAllClients({
-		phase = "flood_phase_complete",
-		message = "🌊 Фаза затопления завершена! Начинается фаза истот...",
-	})
-
-	-- Перевіряємо чи є currentPlayer
-	if self.mainGame and self.currentPlayer then
-		print("🦖 Перехід до фази істот для гравця:", self.currentPlayer.Name)
-		self.mainGame:startCreaturePhase(self.currentPlayer) -- Запускаємо фазу істот
-	else
-		warn(
-			"❌ [FloodPhase] Не вдалося знайти гравця для переходу до фази істот"
-		)
-
-		-- Якщо немає гравця, все одно запускаємо фазу істот через TurnManager
-		if self.mainGame and self.mainGame.turnManager then
-			local player = self.mainGame.turnManager:getCurrentPlayer()
-			if player then
-				self.mainGame:startCreaturePhase(player)
-			else
-				self.mainGame:returnToMainGameAfterFlood()
-			end
-		else
-			self.mainGame:returnToMainGameAfterFlood()
-		end
+	-- Если игра не завершена, продолжаем
+	print(
+		"🦖 Перехід до фази істот для гравця: "
+			.. (self.currentPlayer and self.currentPlayer.Name or "Невідомо")
+	)
+	if self.mainGame then
+		self.mainGame:startCreaturePhase(self.currentPlayer)
 	end
-
-	self.isActive = false
 end
 function FloodPhase:getFloodTypeName(tileType)
 	local names = {

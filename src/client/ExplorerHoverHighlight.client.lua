@@ -2348,9 +2348,97 @@ local exitButtonCorner = Instance.new("UICorner")
 exitButtonCorner.CornerRadius = UDim.new(0, 8)
 exitButtonCorner.Parent = exitButton
 
+local resultsFrame = Instance.new("Frame")
+resultsFrame.Name = "ResultsFrame"
+resultsFrame.Size = UDim2.new(0, 500, 0, 300)
+resultsFrame.Position = UDim2.new(0.5, -250, 0.2, 0)
+resultsFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+resultsFrame.BackgroundTransparency = 0.1
+resultsFrame.BorderSizePixel = 2
+resultsFrame.BorderColor3 = Color3.fromRGB(255, 215, 0)
+resultsFrame.Visible = false
+resultsFrame.Parent = endGameGui
+
+local resultsCorner = Instance.new("UICorner")
+resultsCorner.CornerRadius = UDim.new(0, 10)
+resultsCorner.Parent = resultsFrame
+
+-- Заголовок таблиці
+local resultsTitle = Instance.new("TextLabel")
+resultsTitle.Name = "ResultsTitle"
+resultsTitle.Size = UDim2.new(1, 0, 0, 40)
+resultsTitle.Position = UDim2.new(0, 0, 0, 0)
+resultsTitle.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+resultsTitle.TextColor3 = Color3.fromRGB(255, 215, 0)
+resultsTitle.Text = "📊 РЕЗУЛЬТАТИ ГРИ"
+resultsTitle.TextSize = 18
+resultsTitle.Font = Enum.Font.GothamBold
+resultsTitle.Parent = resultsFrame
+
+-- Шапка таблиці
+local headerFrame = Instance.new("Frame")
+headerFrame.Name = "HeaderFrame"
+headerFrame.Size = UDim2.new(1, -20, 0, 30)
+headerFrame.Position = UDim2.new(0, 10, 0, 50)
+headerFrame.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+headerFrame.Parent = resultsFrame
+
+local playerHeader = Instance.new("TextLabel")
+playerHeader.Name = "PlayerHeader"
+playerHeader.Size = UDim2.new(0.4, 0, 1, 0)
+playerHeader.Position = UDim2.new(0, 0, 0, 0)
+playerHeader.BackgroundTransparency = 1
+playerHeader.TextColor3 = Color3.fromRGB(255, 255, 255)
+playerHeader.Text = "ГРАВЕЦЬ"
+playerHeader.TextSize = 14
+playerHeader.Font = Enum.Font.GothamBold
+playerHeader.Parent = headerFrame
+
+local treasuresHeader = Instance.new("TextLabel")
+treasuresHeader.Name = "TreasuresHeader"
+treasuresHeader.Size = UDim2.new(0.4, 0, 1, 0)
+treasuresHeader.Position = UDim2.new(0.4, 0, 0, 0)
+treasuresHeader.BackgroundTransparency = 1
+treasuresHeader.TextColor3 = Color3.fromRGB(255, 255, 255)
+treasuresHeader.Text = "СКАРБИ"
+treasuresHeader.TextSize = 14
+treasuresHeader.Font = Enum.Font.GothamBold
+treasuresHeader.Parent = headerFrame
+
+local scoreHeader = Instance.new("TextLabel")
+scoreHeader.Name = "ScoreHeader"
+scoreHeader.Size = UDim2.new(0.2, 0, 1, 0)
+scoreHeader.Position = UDim2.new(0.8, 0, 0, 0)
+scoreHeader.BackgroundTransparency = 1
+scoreHeader.TextColor3 = Color3.fromRGB(255, 255, 255)
+scoreHeader.Text = "СУМА"
+scoreHeader.TextSize = 14
+scoreHeader.Font = Enum.Font.GothamBold
+scoreHeader.Parent = headerFrame
+
+-- Контейнер для рядків результатів
+local resultsContainer = Instance.new("ScrollingFrame")
+resultsContainer.Name = "ResultsContainer"
+resultsContainer.Size = UDim2.new(1, -20, 0, 200)
+resultsContainer.Position = UDim2.new(0, 10, 0, 90)
+resultsContainer.BackgroundTransparency = 1
+resultsContainer.ScrollBarThickness = 8
+resultsContainer.Parent = resultsFrame
+
+local uiListLayout = Instance.new("UIListLayout")
+uiListLayout.Padding = UDim.new(0, 5)
+uiListLayout.Parent = resultsContainer
+
 -- Функція для показу UI завершення гри
 local function showEndGameUI(data)
 	print("🏁 Показ UI завершення гри")
+
+	-- Очищаємо попередні результати
+	for _, child in ipairs(resultsContainer:GetChildren()) do
+		if child:IsA("Frame") then
+			child:Destroy()
+		end
+	end
 
 	-- Встановлюємо дані
 	if data.title then
@@ -2371,7 +2459,6 @@ local function showEndGameUI(data)
 		volcanoIcon.Text = string.rep("🌋", data.volcanoCount or 3)
 		volcanoIcon.Visible = true
 	else
-		-- Якщо завершення через відсутність дослідників
 		volcanoIcon.Text = "👤❌"
 		volcanoIcon.Visible = true
 	end
@@ -2380,12 +2467,113 @@ local function showEndGameUI(data)
 		volcanoIcon.Text = string.rep("🌋", data.volcanoCount)
 	end
 
+	-- Показуємо таблицю результатів якщо є дані
+	if data.detailedScores then
+		resultsFrame.Visible = true
+		resultsFrame.Position = UDim2.new(0.5, -250, 0.2, 0)
+
+		-- Сортуємо гравців за балами
+		table.sort(data.detailedScores, function(a, b)
+			return a.totalScore > b.totalScore
+		end)
+
+		local yPosition = 0
+		for i, playerData in ipairs(data.detailedScores) do
+			-- Створюємо рядок для гравця
+			local playerRow = Instance.new("Frame")
+			playerRow.Name = "PlayerRow_" .. playerData.playerName
+			playerRow.Size = UDim2.new(1, 0, 0, 40)
+			playerRow.Position = UDim2.new(0, 0, 0, yPosition)
+
+			-- Колір фону залежно від місця
+			if i == 1 and playerData.totalScore > 0 then
+				playerRow.BackgroundColor3 = Color3.fromRGB(50, 100, 50) -- Зелений для першого місця
+			elseif i == 2 and playerData.totalScore > 0 then
+				playerRow.BackgroundColor3 = Color3.fromRGB(70, 70, 100) -- Синій для другого місця
+			elseif i == 3 and playerData.totalScore > 0 then
+				playerRow.BackgroundColor3 = Color3.fromRGB(100, 70, 50) -- Коричневий для третього місця
+			else
+				playerRow.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+			end
+
+			playerRow.BackgroundTransparency = 0.3
+			playerRow.Parent = resultsContainer
+
+			-- Ім'я гравця
+			local nameLabel = Instance.new("TextLabel")
+			nameLabel.Name = "NameLabel"
+			nameLabel.Size = UDim2.new(0.4, 0, 1, 0)
+			nameLabel.Position = UDim2.new(0, 0, 0, 0)
+			nameLabel.BackgroundTransparency = 1
+			nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+			nameLabel.Text = playerData.playerName
+			if i == 1 and playerData.totalScore > 0 then
+				nameLabel.Text = "👑 " .. playerData.playerName
+				nameLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+			end
+			nameLabel.TextSize = 14
+			nameLabel.Font = Enum.Font.GothamBold
+			nameLabel.Parent = playerRow
+
+			-- Список скарбів
+			local treasuresText = ""
+			if playerData.treasureValues and #playerData.treasureValues > 0 then
+				table.sort(playerData.treasureValues, function(a, b)
+					return a > b
+				end)
+				for j, value in ipairs(playerData.treasureValues) do
+					treasuresText = treasuresText .. tostring(value)
+					if j < #playerData.treasureValues then
+						treasuresText = treasuresText .. ", "
+					end
+				end
+			else
+				treasuresText = "Немає"
+			end
+
+			local treasuresLabel = Instance.new("TextLabel")
+			treasuresLabel.Name = "TreasuresLabel"
+			treasuresLabel.Size = UDim2.new(0.4, 0, 1, 0)
+			treasuresLabel.Position = UDim2.new(0.4, 0, 0, 0)
+			treasuresLabel.BackgroundTransparency = 1
+			treasuresLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+			treasuresLabel.Text = "[" .. treasuresText .. "]"
+			treasuresLabel.TextSize = 14
+			treasuresLabel.Font = Enum.Font.Gotham
+			treasuresLabel.Parent = playerRow
+
+			-- Загальна сума
+			local scoreLabel = Instance.new("TextLabel")
+			scoreLabel.Name = "ScoreLabel"
+			scoreLabel.Size = UDim2.new(0.2, 0, 1, 0)
+			scoreLabel.Position = UDim2.new(0.8, 0, 0, 0)
+			scoreLabel.BackgroundTransparency = 1
+			scoreLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+			scoreLabel.Text = tostring(playerData.totalScore)
+			scoreLabel.TextSize = 16
+			if i == 1 and playerData.totalScore > 0 then
+				scoreLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+				scoreLabel.Font = Enum.Font.GothamBold
+			else
+				scoreLabel.Font = Enum.Font.Gotham
+			end
+			scoreLabel.Parent = playerRow
+
+			yPosition = yPosition + 45
+		end
+
+		-- Оновлюємо розмір контейнера
+		resultsContainer.CanvasSize = UDim2.new(0, 0, 0, yPosition)
+	else
+		resultsFrame.Visible = false
+	end
+
 	-- Показуємо UI
 	endGameGui.Enabled = true
 	endGameFrame.Visible = true
 
 	-- Анімація появи
-	endGameFrame.Position = UDim2.new(0.5, -250, 0.2, -200)
+	endGameFrame.Position = UDim2.new(0.5, -250, 0.5, -200)
 	local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 	local tween = TweenService:Create(endGameFrame, tweenInfo, {
 		Position = UDim2.new(0.5, -250, 0.5, -200),
@@ -3510,13 +3698,22 @@ UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
 				end)
 			end
 		end
-	elseif data and data.type == "game_end_ui" then
+	elseif data.type == "game_end_ui" then
 		if data.show then
 			floodScreenGui.Enabled = false
-			showEndGameUI(data)
+			showEndGameUI({
+				title = data.title or "🎯 ГРА ЗАКІНЧЕНА!",
+				message = data.message or "",
+				winner = data.winner or "Невідомо",
+				isVolcanoEnd = (data.reason == "volcano"),
+				volcanoCount = data.volcanoCount or 0,
+				detailedScores = data.detailedScores or {},
+				maxScore = data.maxScore or 0,
+			})
 		else
 			endGameGui.Enabled = false
 			endGameFrame.Visible = false
+			resultsFrame.Visible = false
 		end
 	elseif data.type == "ExplorerSaved" then
 		print(
