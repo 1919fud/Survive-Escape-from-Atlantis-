@@ -77,9 +77,10 @@ function MapManager:generateLandTiles()
 		table.insert(landTypes, "Beach")
 	end]]
 	--
-	for _ = 1, 16 do
+	--[[for _ = 1, 16 do
 		table.insert(landTypes, "Forest")
-	end
+	end]]
+	--
 	for _ = 1, 8 do
 		table.insert(landTypes, "Mountain")
 	end

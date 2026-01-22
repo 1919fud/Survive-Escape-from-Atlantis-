@@ -68,6 +68,10 @@ function NetworkManager.new()
 	self.skipTurnEvent = Instance.new("RemoteEvent")
 	self.skipTurnEvent.Name = "SkipTurnEvent"
 	self.skipTurnEvent.Parent = eventsFolder
+
+	self.endGameUIEvent = Instance.new("RemoteEvent")
+	self.endGameUIEvent.Name = "EndGameUIEvent"
+	self.endGameUIEvent.Parent = eventsFolder
 	return self
 end
 
@@ -126,6 +130,10 @@ end
 
 function NetworkManager:getSkipTurnEvent()
 	return self.skipTurnEvent
+end
+
+function NetworkManager:getEndGameUIEvent()
+	return self.endGameUIEvent
 end
 
 return NetworkManager

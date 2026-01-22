@@ -14,6 +14,10 @@ function CreaturePhase.new()
 end
 
 function CreaturePhase:start(player, mainGame)
+	if mainGame.gameState == "finished" then
+		print("⚠️ Гра вже завершена, фаза істот не запускається")
+		return
+	end
 	self.mainGame = mainGame
 	self.networkManager = mainGame.networkManager
 	self.currentPlayer = player -- ВАЖНО: устанавливаем текущего игрока!

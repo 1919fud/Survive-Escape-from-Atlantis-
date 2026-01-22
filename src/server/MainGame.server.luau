@@ -45,9 +45,11 @@ function AtlantisGame:start()
 	self:setupExplorerPlacement()
 	self:setupMainGameHandlers()
 	self:setupFloodPhaseHandlers()
+	self:setupGameEndHandlers()
 
 	self.floodPhase.placementPhase = self.placementPhase
 	self.floodPhase.mainGame = self
+	self.floodPhase.activatedVolcanoes = 0
 end
 
 function AtlantisGame:initializeMap()
@@ -782,6 +784,10 @@ end
 
 function AtlantisGame:startFloodPhase(player)
 	print("🌊 Початок фази затоплення для гравця:", player.Name)
+	if self.gameState == "finished" then
+		print("⚠️ Гра вже завершена, не починаємо новий хід")
+		return
+	end
 
 	-- Зупиняємо основну гру
 	self.isGameActive = false
@@ -801,24 +807,24 @@ function AtlantisGame:startFloodPhase(player)
 end
 
 function AtlantisGame:startCreaturePhase(player)
+	-- ВИПРАВЛЕННЯ: Перевіряємо, чи гра не завершена
+	if self.gameState == "finished" then
+		print("⚠️ Гра вже завершена, не запускаємо фазу істот")
+		return
+	end
+
 	--print("🦖 Початок фази істот для гравця:", player.Name)
+
 	if not player then
 		player = self.turnManager:getCurrentPlayer()
 	end
+
 	-- Зупиняємо основну гру
 	self.gameState = "creatures"
 	self.isGameActive = false
 
 	-- Ініціалізуємо та починаємо фазу істот
 	self.creaturePhase:start(player, self)
-
-	-- Уведомляємо всіх гравців
-	--[[self.networkManager:getGameStartEvent():FireAllClients({
-		phase = "creature_phase_start",
-		message = "🦖 ФАЗА ІСТОТ!",
-		currentPlayer = player.Name,
-	})]]
-	--
 end
 
 function AtlantisGame:returnToMainGame()
@@ -998,6 +1004,10 @@ function AtlantisGame:updateExplorerPosition(explorerId, playerName, newQ, newR)
 end
 
 function AtlantisGame:startPlayerTurn()
+	if self.gameState == "finished" then
+		print("⚠️ Гра вже завершена, не починаємо новий хід")
+		return
+	end
 	local currentPlayer = self.turnManager:getCurrentPlayer()
 	local turnInfo = self.turnManager:getTurnInfo()
 
@@ -1118,6 +1128,16 @@ function AtlantisGame:setupMovementSystem()
 	end
 
 	print("✅ [СЕРВЕР] Система переміщення налаштована")
+end
+
+function AtlantisGame:setupGameEndHandlers()
+	print("🏁 Налаштування обробників завершення гри...")
+
+	local EndGameUIEvent = Instance.new("RemoteEvent")
+	EndGameUIEvent.Name = "EndGameUIEvent"
+	EndGameUIEvent.Parent = self.networkManager:getGameStartEvent().Parent
+
+	print("✅ Обробники завершення гри налаштовані")
 end
 
 function AtlantisGame:onPlayerSelectExplorer(player, explorerId)
@@ -2046,7 +2066,7 @@ function AtlantisGame:onPlayerMoveBoat(player, boatId, q, r)
 	end
 
 	if not boatModel then
-		print("❌ [СЕРВЕР] Човен не знайдений у workspace!")
+		print("❌ [СЕРВЕР] Човен не знайд��ний у workspace!")
 		return false
 	end
 

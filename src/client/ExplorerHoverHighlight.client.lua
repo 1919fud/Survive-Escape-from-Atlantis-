@@ -2248,6 +2248,148 @@ local function clearAllHighlights()
 
 	isMovementMode = false
 end
+local endGameGui = Instance.new("ScreenGui")
+endGameGui.Name = "EndGameUI"
+endGameGui.ResetOnSpawn = false
+endGameGui.Enabled = false
+endGameGui.Parent = PlayerGui
+
+local endGameFrame = Instance.new("Frame")
+endGameFrame.Name = "EndGameFrame"
+endGameFrame.Size = UDim2.new(0, 500, 0, 400)
+endGameFrame.Position = UDim2.new(0.5, -250, 0.5, -200)
+endGameFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+endGameFrame.BackgroundTransparency = 0.1
+endGameFrame.BorderSizePixel = 3
+endGameFrame.BorderColor3 = Color3.fromRGB(255, 50, 50)
+endGameFrame.Visible = false
+endGameFrame.Parent = endGameGui
+
+local endGameCorner = Instance.new("UICorner")
+endGameCorner.CornerRadius = UDim.new(0, 15)
+endGameCorner.Parent = endGameFrame
+
+-- Заголовок
+local endGameTitle = Instance.new("TextLabel")
+endGameTitle.Name = "EndGameTitle"
+endGameTitle.Size = UDim2.new(1, 0, 0, 60)
+endGameTitle.Position = UDim2.new(0, 0, 0, 0)
+endGameTitle.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+endGameTitle.BackgroundTransparency = 0.3
+endGameTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+endGameTitle.Text = "🔥 ГРА ЗАКІНЧЕНА!"
+endGameTitle.TextSize = 24
+endGameTitle.Font = Enum.Font.GothamBold
+endGameTitle.Parent = endGameFrame
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 15)
+titleCorner.Parent = endGameTitle
+
+-- Інформація про причину
+local reasonLabel = Instance.new("TextLabel")
+reasonLabel.Name = "ReasonLabel"
+reasonLabel.Size = UDim2.new(1, -20, 0, 50)
+reasonLabel.Position = UDim2.new(0, 10, 0, 70)
+reasonLabel.BackgroundTransparency = 1
+reasonLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
+reasonLabel.Text = "Активовано 3 вулкани!"
+reasonLabel.TextSize = 20
+reasonLabel.Font = Enum.Font.GothamBold
+reasonLabel.Parent = endGameFrame
+
+-- Іконка вулкана
+local volcanoIcon = Instance.new("TextLabel")
+volcanoIcon.Name = "VolcanoIcon"
+volcanoIcon.Size = UDim2.new(0, 100, 0, 100)
+volcanoIcon.Position = UDim2.new(0.5, -50, 0.3, 0)
+volcanoIcon.BackgroundTransparency = 1
+volcanoIcon.Text = "🌋🌋🌋"
+volcanoIcon.TextSize = 50
+volcanoIcon.Font = Enum.Font.GothamBold
+volcanoIcon.Parent = endGameFrame
+
+-- Переможець
+local winnerLabel = Instance.new("TextLabel")
+winnerLabel.Name = "WinnerLabel"
+winnerLabel.Size = UDim2.new(1, -20, 0, 40)
+winnerLabel.Position = UDim2.new(0, 10, 0.6, 0)
+winnerLabel.BackgroundTransparency = 1
+winnerLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+winnerLabel.Text = "🏆 Переможець: "
+winnerLabel.TextSize = 18
+winnerLabel.Font = Enum.Font.GothamBold
+winnerLabel.Parent = endGameFrame
+
+local winnerNameLabel = Instance.new("TextLabel")
+winnerNameLabel.Name = "WinnerNameLabel"
+winnerNameLabel.Size = UDim2.new(1, -20, 0, 30)
+winnerNameLabel.Position = UDim2.new(0, 10, 0.7, 0)
+winnerNameLabel.BackgroundTransparency = 1
+winnerNameLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+winnerNameLabel.Text = "Гравець"
+winnerNameLabel.TextSize = 22
+winnerNameLabel.Font = Enum.Font.GothamBold
+winnerNameLabel.Parent = endGameFrame
+
+-- Кнопка виходу
+local exitButton = Instance.new("TextButton")
+exitButton.Name = "ExitButton"
+exitButton.Size = UDim2.new(0, 150, 0, 40)
+exitButton.Position = UDim2.new(0.5, -75, 0.85, 0)
+exitButton.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+exitButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+exitButton.Text = "ВИЙТИ З ГРИ"
+exitButton.TextSize = 16
+exitButton.Font = Enum.Font.GothamBold
+exitButton.Parent = endGameFrame
+
+local exitButtonCorner = Instance.new("UICorner")
+exitButtonCorner.CornerRadius = UDim.new(0, 8)
+exitButtonCorner.Parent = exitButton
+
+-- Функція для показу UI завершення гри
+local function showEndGameUI(data)
+	print("🏁 Показ UI завершення гри")
+
+	-- Встановлюємо дані
+	if data.title then
+		endGameTitle.Text = data.title
+	end
+
+	if data.message then
+		reasonLabel.Text = data.message
+	end
+
+	if data.winner then
+		winnerNameLabel.Text = data.winner
+	end
+
+	if data.volcanoCount then
+		volcanoIcon.Text = string.rep("🌋", data.volcanoCount)
+	end
+
+	-- Показуємо UI
+	endGameGui.Enabled = true
+	endGameFrame.Visible = true
+
+	-- Анімація появи
+	endGameFrame.Position = UDim2.new(0.5, -250, 0.2, -200)
+	local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+	local tween = TweenService:Create(endGameFrame, tweenInfo, {
+		Position = UDim2.new(0.5, -250, 0.5, -200),
+	})
+	tween:Play()
+
+	-- Блокуємо іншу взаємодію
+	isGamePhaseActive = false
+	isMyTurn = false
+
+	-- Очищаємо всі підсвічування
+	clearTileHighlights()
+	clearBoatTileHighlights()
+	clearSelectionState()
+end
 
 -- Обробник кліку на кнопку підтвердження
 confirmButton.MouseButton1Click:Connect(function()
@@ -3356,6 +3498,14 @@ UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
 					end
 				end)
 			end
+		end
+	elseif data and data.type == "game_end_ui" then
+		if data.show then
+			floodScreenGui.Enabled = false
+			showEndGameUI(data)
+		else
+			endGameGui.Enabled = false
+			endGameFrame.Visible = false
 		end
 	elseif data.type == "ExplorerSaved" then
 		print(

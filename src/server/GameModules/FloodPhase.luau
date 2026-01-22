@@ -14,6 +14,7 @@ function FloodPhase.new()
 	self.players = {}
 	self.mapManager = nil
 	self.currentFloodPlayer = nil
+	self.activatedVolcanoes = 0
 
 	self.globalEffects = {
 		sharks = {
@@ -28,6 +29,11 @@ function FloodPhase.new()
 			maxCount = 2, -- Максимум: 3 на пляжах + 2 у лісах
 			beachTiles = 0,
 			forestTiles = 0,
+			placedOn = {},
+		},
+		octopus = {
+			count = 0,
+			maxCount = 5, -- Максимум: 5 восьминогов
 			placedOn = {},
 		},
 		extraBoats = {
@@ -1224,6 +1230,7 @@ function FloodPhase:removeElementsFromWhirlpoolArea(q, r)
 		explorers = 0,
 		sharks = 0,
 		kaijus = 0,
+		octopus = 0,
 		boats = 0,
 	}
 
@@ -1235,6 +1242,7 @@ function FloodPhase:removeElementsFromWhirlpoolArea(q, r)
 			totalRemoved.explorers = totalRemoved.explorers + (removed.explorers or 0)
 			totalRemoved.sharks = totalRemoved.sharks + (removed.sharks or 0)
 			totalRemoved.kaijus = totalRemoved.kaijus + (removed.kaijus or 0)
+			totalRemoved.octopus = totalRemoved.octopus + (removed.octopus or 0)
 			totalRemoved.boats = totalRemoved.boats + (removed.boats or 0)
 		end
 	end
@@ -1243,6 +1251,7 @@ function FloodPhase:removeElementsFromWhirlpoolArea(q, r)
 	print("   Дослідників:", totalRemoved.explorers)
 	print("   Акул:", totalRemoved.sharks)
 	print("   Кайджю:", totalRemoved.kaijus)
+	print("   Восьминогів:", totalRemoved.octopus)
 	print("   Човнів:", totalRemoved.boats)
 
 	return totalRemoved
@@ -1255,6 +1264,7 @@ function FloodPhase:removeAllElementsFromTile(q, r)
 		explorers = 0,
 		sharks = 0,
 		kaijus = 0,
+		octopus = 0,
 		boats = 0,
 	}
 
@@ -1327,6 +1337,7 @@ function FloodPhase:removeAllElementsFromTile(q, r)
 	local creatures = {
 		{ type = "IsShark", name = "sharks" },
 		{ type = "IsKaiju", name = "kaijus" },
+		{ type = "IsOctopus", name = "octopus" },
 	}
 
 	for _, creature in ipairs(creatures) do
@@ -1660,6 +1671,16 @@ function FloodPhase:activateVolcanoTile(q, r)
 	local map = workspace:WaitForChild("Map")
 	local volcanoTile = nil
 
+	self.activatedVolcanoes = self.activatedVolcanoes + 1
+	print("🌋 Активовано вулканів:", self.activatedVolcanoes, "/3")
+
+	-- 2. ПЕРЕВІРКА НА ЗАВЕРШЕННЯ ГРИ
+	if self.activatedVolcanoes >= 3 then
+		print("🔥 ГРА ЗАКІНЧЕНА! Активовано 3 вулкани!")
+		self:endGameDueToVolcanoes()
+		return volcanoTile
+	end
+
 	for _, obj in ipairs(map:GetDescendants()) do
 		if obj:IsA("MeshPart") then
 			local tileQ = obj:GetAttribute("Q") or obj:GetAttribute("q")
@@ -1746,9 +1767,99 @@ function FloodPhase:activateVolcanoTile(q, r)
 		end
 	end
 
+	self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
+		type = "volcano_count_updated",
+		currentCount = self.activatedVolcanoes,
+		maxCount = 3,
+		message = "🌋 Активовано вулканів: " .. self.activatedVolcanoes .. "/3",
+	})
+
 	print("🌋 Вулкан активовано на Q=", q, "R=", r)
 	return volcanoTile
 end
+
+function FloodPhase:endGameDueToVolcanoes()
+	print("🔥 ГРА ЗАКІНЧЕНА! Активовано 3 вулкани!")
+
+	-- Зупиняємо всі ігрові процеси
+	self.isActive = false
+	self.mainGame.isGameActive = false
+	self.mainGame.gameState = "finished"
+
+	-- ВИПРАВЛЕННЯ: Припиняємо всі подальші фази
+	self.mainGame.floodPhase.isActive = false -- Зупиняємо фазу затоплення
+
+	-- Зупиняємо фазу істот якщо вона існує
+	if self.mainGame.creaturePhase then
+		self.mainGame.creaturePhase.isActive = false
+		print("🛑 Фаза істот зупинена після завершення гри")
+	end
+
+	-- Зупиняємо TurnManager якщо він існує
+	if self.mainGame.turnManager then
+		self.mainGame.turnManager.isActive = false
+		print("🛑 TurnManager зупинено після завершення гри")
+	end
+
+	-- Визначаємо переможця (той, хто зберіг найбільше дослідників)
+	local winner = nil
+	local maxSaved = 0
+
+	for player, playerData in pairs(self.mainGame.players) do
+		local savedCount = 0
+		for _, saved in ipairs(self.mainGame.savedExplorers) do
+			if saved.playerName == player.Name then
+				savedCount = savedCount + 1
+			end
+		end
+
+		print("📊 Гравець", player.Name, "зберіг", savedCount, "дослідників")
+
+		if savedCount > maxSaved then
+			maxSaved = savedCount
+			winner = player
+		end
+	end
+
+	-- Якщо ніхто не зберіг дослідників - гравець з найбільшою кількістю дослідників на полі
+	if not winner or maxSaved == 0 then
+		local maxExplorers = 0
+		for player, playerData in pairs(self.mainGame.players) do
+			local explorerCount = playerData.explorers and #playerData.explorers or 0
+			if explorerCount > maxExplorers then
+				maxExplorers = explorerCount
+				winner = player
+			end
+		end
+	end
+
+	local winnerName = winner and winner.Name or "Невідомо"
+
+	-- Уведомляємо всіх клієнтів про завершення гри
+	self.networkManager:getGameStartEvent():FireAllClients({
+		phase = "game_over",
+		message = "🔥 ГРА ЗАКІНЧЕНА! Активовано 3 вулкани!",
+		winner = winnerName,
+		reason = "volcanoes",
+		volcanoCount = self.activatedVolcanoes,
+		maxVolcanoes = 3,
+	})
+
+	-- Запускаємо UI завершення гри на клієнті
+	self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
+		type = "game_end_ui",
+		show = true,
+		title = "🔥 ГРА ЗАКІНЧЕНА!",
+		message = "Активовано 3 вулкани!",
+		winner = winnerName,
+		volcanoCount = self.activatedVolcanoes,
+	})
+
+	print("🏆 Переможець:", winnerName)
+
+	return
+end
+
 function FloodPhase:removeExplorersFromVolcano(q, r)
 	print("👤 Видалення дослідників з вулкана Q=", q, "R=", r)
 
@@ -1890,16 +2001,6 @@ function FloodPhase:findNearestAvailableWaterTile(fromQ, fromR)
 
 	-- Якщо не знайшли, повертаємо оригінальні координати
 	return { q = fromQ, r = fromR }
-end
-
-function FloodPhase:endGameDueToVolcanoes()
-	print("🔥 ГРА ЗАКІНЧЕНА! Активовано 3 вулкани!")
-	-- Тут код для завершення гри
-	self.networkManager:getGameStartEvent():FireAllClients({
-		phase = "game_over",
-		message = "🔥 ГРА ЗАКІНЧЕНА! Активовано 3 вулкани!",
-		reason = "volcanoes",
-	})
 end
 
 function FloodPhase:createFloodEffect(tile)
@@ -2069,6 +2170,12 @@ end
 function FloodPhase:endPhase()
 	print("✅ Фаза затопления завершена")
 
+	-- ВИПРАВЛЕННЯ: Перевіряємо, чи гра не завершена через вулкани
+	if self.mainGame and self.mainGame.gameState == "finished" then
+		print("⚠️ Гра вже завершена, не запускаємо фазу істот")
+		return
+	end
+
 	-- Очищаем подсветку
 	self.networkManager:getHighlightTilesEvent():FireAllClients({
 		type = "clear",
@@ -2088,6 +2195,7 @@ function FloodPhase:endPhase()
 		warn(
 			"❌ [FloodPhase] Не вдалося знайти гравця для переходу до фази істот"
 		)
+
 		-- Якщо немає гравця, все одно запускаємо фазу істот через TurnManager
 		if self.mainGame and self.mainGame.turnManager then
 			local player = self.mainGame.turnManager:getCurrentPlayer()
@@ -2103,7 +2211,6 @@ function FloodPhase:endPhase()
 
 	self.isActive = false
 end
-
 function FloodPhase:getFloodTypeName(tileType)
 	local names = {
 		Beach = "🏖️ Пляжі",
