@@ -690,6 +690,8 @@ function FloodPhase:spawnShark(tileType, q, r, coordKey)
 		sharkData.forestTiles = sharkData.forestTiles + 1
 	end
 
+	self:removeAllExplorersFromTile(q, r, "shark")
+
 	if sharkData.count < sharkData.maxCount then
 		-- Створюємо нову акулу
 		print("🦈 Створюємо нову акулу на Q=", q, "R=", r)
@@ -715,6 +717,67 @@ function FloodPhase:spawnShark(tileType, q, r, coordKey)
 			self:moveSharkToPosition(oldCoordKey, q, r)
 		end
 	end
+end
+
+function FloodPhase:removeAllExplorersFromTile(q, r, reason)
+	print(
+		"🦈 Видалення всіх дослідників з тайлу Q=",
+		q,
+		"R=",
+		r,
+		"причина:",
+		reason
+	)
+
+	local explorersRemoved = 0
+
+	-- Шукаємо дослідників в даних гри
+	for _, playerData in pairs(self.players) do
+		if playerData.explorers then
+			for i = #playerData.explorers, 1, -1 do
+				local explorer = playerData.explorers[i]
+				if explorer.q == q and explorer.r == r then
+					print(
+						"🗑️ Видаляємо дослідника",
+						explorer.id,
+						"гравця",
+						explorer.player.Name,
+						"через",
+						reason
+					)
+
+					-- Сповіщаємо всіх гравців
+					self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
+						type = "explorer_removed_by_effect",
+						explorerId = explorer.id,
+						playerName = explorer.player.Name,
+						q = q,
+						r = r,
+						reason = reason,
+					})
+
+					-- Видаляємо дослідника
+					table.remove(playerData.explorers, i)
+					explorersRemoved = explorersRemoved + 1
+				end
+			end
+		end
+	end
+
+	-- Також видаляємо візуальні об'єкти дослідників
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:GetAttribute("IsExplorer") then
+			local objQ = obj:GetAttribute("Q")
+			local objR = obj:GetAttribute("R")
+
+			if objQ == q and objR == r then
+				obj:Destroy()
+			end
+		end
+	end
+
+	print("📊 Видалено дослідників з тайлу:", explorersRemoved)
+	return explorersRemoved
 end
 
 function FloodPhase:createSharkVisual(q, r)
