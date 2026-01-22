@@ -2365,6 +2365,17 @@ local function showEndGameUI(data)
 		winnerNameLabel.Text = data.winner
 	end
 
+	-- Різні іконки залежно від причини завершення
+	if data.isVolcanoEnd then
+		volcanoIcon.Text = "🌋🌋🌋"
+		volcanoIcon.Text = string.rep("🌋", data.volcanoCount or 3)
+		volcanoIcon.Visible = true
+	else
+		-- Якщо завершення через відсутність дослідників
+		volcanoIcon.Text = "👤❌"
+		volcanoIcon.Visible = true
+	end
+
 	if data.volcanoCount then
 		volcanoIcon.Text = string.rep("🌋", data.volcanoCount)
 	end
@@ -3780,7 +3791,7 @@ UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
 					end
 				else
 					updateExplorerPosition(explorerModel, data.toQ, data.toR)
-					print("💧 Дослідник у воді")
+					print("💧 Дослідник у ��оді")
 				end
 			else
 				-- Звичайне переміщення на сушу

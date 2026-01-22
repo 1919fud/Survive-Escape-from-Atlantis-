@@ -758,6 +758,21 @@ function CreaturePhase:handleCreatureMove(player, creatureModel, q, r)
 		success = self:moveOctopus(creatureModel, q, r)
 	end
 
+	if self.mainGame and self.mainGame.countTotalExplorers then
+		local totalExplorers = self.mainGame:countTotalExplorers()
+		print("🔍 Проверка исследователей после хода истоты:", totalExplorers)
+
+		if totalExplorers <= 0 then
+			print("🎯 Все исследователи уничтожены! Завершаем игру...")
+
+			-- Завершаем игру
+			if self.mainGame.endGameNoExplorers then
+				self.mainGame:endGameNoExplorers()
+				return
+			end
+		end
+	end
+
 	if success then
 		self:endPhase()
 	end
@@ -1649,6 +1664,20 @@ end
 -- Функция завершения фазы существ
 function CreaturePhase:endPhase()
 	print(" ✅ Завершення фази істот")
+
+	if self.mainGame and self.mainGame.countTotalExplorers then
+		local totalExplorers = self.mainGame:countTotalExplorers()
+		print("🔍 Перевірка дослідників після затоплення:", totalExplorers)
+
+		if totalExplorers <= 0 then
+			print("🎯 Всі дослідники знищені! Гра завершується...")
+
+			if self.mainGame.endGameNoExplorers then
+				self.mainGame:endGameNoExplorers()
+			end
+			return
+		end
+	end
 
 	-- 1. Повідомляємо ВСІХ клієнтів, что фаза істот завершена
 	if self.mainGame and self.mainGame.networkManager then

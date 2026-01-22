@@ -733,34 +733,64 @@ function AtlantisGame:startMainGamePhase()
 	if self.placementPhase and self.placementPhase.playersData then
 		for player, placementData in pairs(self.placementPhase.playersData) do
 			if self.players[player] then
+				-- Инициализируем пустой массив для исследователей
 				self.players[player].explorers = {}
+
 				print("🔄 Передаємо дослідників гравцю", player.Name)
+				print("   У PlacementPhase знайдено дослідників:", #placementData.explorers)
 
 				for i, exp in ipairs(placementData.explorers) do
-					-- ВАЖНО: Сохраняем ссылку на объект игрока
-					local explorer = {
-						id = exp.id or i,
-						player = player, -- Ссылка на объект игрока!
-						treasureValue = exp.treasureValue,
-						q = exp.q,
-						r = exp.r,
-					}
-					table.insert(self.players[player].explorers, explorer)
-					--[[print(
-						"  Дослідник",
-						explorer.id,
-						"Q=",
-						explorer.q,
-						"R=",
-						explorer.r,
-						"власник:",
-						explorer.player.Name
-					)]]
-					--
+					-- Получаем объект игрока
+					local playerObj = nil
+					for p, _ in pairs(self.players) do
+						if p.Name == player.Name then
+							playerObj = p
+							break
+						end
+					end
+
+					if playerObj then
+						local explorer = {
+							id = exp.id or i,
+							player = playerObj, -- Правильная ссылка на объект игрока
+							treasureValue = exp.treasureValue,
+							q = exp.q,
+							r = exp.r,
+							isOnBoat = false,
+							hasEnteredWaterThisTurn = false,
+						}
+						table.insert(self.players[playerObj].explorers, explorer)
+
+						print(
+							"  ✅ Дослідник",
+							explorer.id,
+							"Q=",
+							explorer.q,
+							"R=",
+							explorer.r,
+							"власник:",
+							explorer.player.Name
+						)
+					else
+						print(
+							"  ❌ Не знайдено об'єкт гравця для дослідника:",
+							player.Name
+						)
+					end
 				end
-				print("  Всього дослідників:", #self.players[player].explorers)
+				print("  📊 Всього дослідників у гравця:", #self.players[player].explorers)
 			end
 		end
+	end
+
+	-- Проверяем общее количество исследователей
+	local totalExplorers = self:countTotalExplorers()
+	print("📊 Всього дослідників на полі:", totalExplorers)
+
+	if totalExplorers <= 0 then
+		print("⚠️ Немає дослідників на полі! Гра завершується...")
+		self:endGameNoExplorers()
+		return
 	end
 
 	-- Инициализируем TurnManager с игроками
@@ -780,6 +810,72 @@ function AtlantisGame:startMainGamePhase()
 
 	-- Запускаємо перший хід
 	self:startPlayerTurn()
+end
+
+function AtlantisGame:endGameNoExplorers()
+	print("🎯 ГРА ЗАВЕРШЕНА! Немає дослідників на полі!")
+
+	self.isGameActive = false
+	self.gameState = "finished"
+
+	if self.floodPhase then
+		self.floodPhase.isActive = false
+	end
+
+	if self.creaturePhase then
+		self.creaturePhase.isActive = false
+	end
+
+	if self.turnManager then
+		self.turnManager.isActive = false
+	end
+
+	-- Визначаємо переможця (той, хто зберіг найбільше дослідників)
+	local winner = nil
+	local maxSaved = 0
+
+	for player, playerData in pairs(self.players) do
+		local savedCount = 0
+		for _, saved in ipairs(self.savedExplorers) do
+			if saved.playerName == player.Name then
+				savedCount = savedCount + 1
+			end
+		end
+
+		print("📊 Гравець", player.Name, "зберіг", savedCount, "дослідників")
+
+		if savedCount > maxSaved then
+			maxSaved = savedCount
+			winner = player
+		end
+	end
+
+	-- Якщо ніхто не зберіг дослідників - перший гравець
+	if not winner then
+		winner = next(self.players)
+	end
+
+	local winnerName = winner and winner.Name or "Невідомо"
+
+	-- Уведомляємо всіх клієнтів про завершення гри
+	self.networkManager:getGameStartEvent():FireAllClients({
+		phase = "game_over",
+		message = "🎯 ГРА ЗАВЕРШЕНА! Всі дослідники покинули острів!",
+		winner = winnerName,
+		reason = "no_explorers",
+	})
+
+	-- Запускаємо UI завершення гри на клієнті
+	self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
+		type = "game_end_ui",
+		show = true,
+		title = "🎯 ГРА ЗАВЕРШЕНА!",
+		message = "Всі дослідники покинули острів або зникли!",
+		winner = winnerName,
+		volcanoCount = self.floodPhase.activatedVolcanoes or 0,
+	})
+
+	print("🏆 Переможець:", winnerName)
 end
 
 function AtlantisGame:startFloodPhase(player)
@@ -840,6 +936,15 @@ end
 
 function AtlantisGame:returnToMainGameAfterCreaturePhase()
 	print("🔄 Повернення до основної гри після фази істот")
+
+	local totalExplorers = self:countTotalExplorers()
+	print("🔍 Перевірка дослідників після фази істот:", totalExplorers)
+
+	if totalExplorers <= 0 then
+		print("🎯 Всі дослідники знищені! Гра завершується...")
+		self:endGameNoExplorers()
+		return
+	end
 
 	-- Очищаємо всі підсвічування
 	self.networkManager:getHighlightTilesEvent():FireAllClients({
@@ -1138,6 +1243,31 @@ function AtlantisGame:setupGameEndHandlers()
 	EndGameUIEvent.Parent = self.networkManager:getGameStartEvent().Parent
 
 	print("✅ Обробники завершення гри налаштовані")
+end
+
+function AtlantisGame:countTotalExplorers()
+	local total = 0
+
+	print("🔍 [ДЕБАГ] Подсчет дослідників:")
+	for playerObj, playerData in pairs(self.players) do
+		local explorerCount = 0
+		if playerData.explorers then
+			explorerCount = #playerData.explorers
+		end
+
+		print("   Гравець", playerObj.Name, "має", explorerCount, "дослідників")
+
+		if playerData.explorers then
+			total = total + #playerData.explorers
+
+			-- Отладочная информация о каждом исследователе
+			for i, explorer in ipairs(playerData.explorers) do
+				print("      Дослідник", i, "ID:", explorer.id, "Q:", explorer.q, "R:", explorer.r)
+			end
+		end
+	end
+
+	return total
 end
 
 function AtlantisGame:onPlayerSelectExplorer(player, explorerId)
@@ -1667,6 +1797,13 @@ function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
 		})
 	end
 
+	local totalExplorers = self:countTotalExplorers()
+	if totalExplorers <= 0 then
+		print("⚠️ Усі дослідники зникли! Гра завершується...")
+		self:endGameNoExplorers()
+		return true
+	end
+
 	return true
 end
 
@@ -2033,7 +2170,7 @@ function AtlantisGame:onPlayerMoveBoat(player, boatId, q, r)
 		return false
 	end
 
-	-- Перевіряємо доступність тайла
+	-- Перевіряємо доступність тайл��
 	local availableTiles = self:getAvailableBoatMovementTiles(boatId)
 	local isTileAvailable = false
 	for _, tile in ipairs(availableTiles) do

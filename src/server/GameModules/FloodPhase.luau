@@ -1774,8 +1774,65 @@ function FloodPhase:activateVolcanoTile(q, r)
 		message = "🌋 Активовано вулканів: " .. self.activatedVolcanoes .. "/3",
 	})
 
+	self:checkGameEndAfterVolcano()
+
 	print("🌋 Вулкан активовано на Q=", q, "R=", r)
 	return volcanoTile
+end
+
+function FloodPhase:checkGameEndAfterVolcano()
+	-- Проверяем количество исследователей через mainGame
+	if self.mainGame and self.mainGame.countTotalExplorers then
+		local totalExplorers = self.mainGame:countTotalExplorers()
+		print(
+			"🔍 Проверка исследователей после активации вулкана:",
+			totalExplorers
+		)
+
+		if totalExplorers <= 0 then
+			print("🎯 Все исследователи уничтожены! Игра завершается...")
+
+			-- Вызываем функцию завершения игры
+			if self.mainGame.endGameNoExplorers then
+				self.mainGame:endGameNoExplorers()
+			else
+				-- Альтернативный способ завершения
+				print("🏁 Игра завершена! Нет исследователей на поле")
+
+				-- Определяем победителя (последний выживший или по очкам)
+				local winner = nil
+				local maxSaved = 0
+
+				for player, playerData in pairs(self.mainGame.players) do
+					local savedCount = 0
+					for _, saved in ipairs(self.mainGame.savedExplorers or {}) do
+						if saved.playerName == player.Name then
+							savedCount = savedCount + 1
+						end
+					end
+
+					if savedCount > maxSaved then
+						maxSaved = savedCount
+						winner = player
+					end
+				end
+
+				local winnerName = winner and winner.Name or "Невідомо"
+
+				-- Отправляем событие завершения
+				if self.networkManager and self.networkManager.getGameStartEvent then
+					self.networkManager:getGameStartEvent():FireAllClients({
+						phase = "game_over",
+						message = "🔥 ГРА ЗАКІНЧЕНА! Всі дослідники знищені!",
+						winner = winnerName,
+						reason = "all_explorers_destroyed",
+					})
+				end
+			end
+			return true
+		end
+	end
+	return false
 end
 
 function FloodPhase:endGameDueToVolcanoes()
@@ -1843,6 +1900,7 @@ function FloodPhase:endGameDueToVolcanoes()
 		reason = "volcanoes",
 		volcanoCount = self.activatedVolcanoes,
 		maxVolcanoes = 3,
+		isVolcanoEnd = true,
 	})
 
 	-- Запускаємо UI завершення гри на клієнті
