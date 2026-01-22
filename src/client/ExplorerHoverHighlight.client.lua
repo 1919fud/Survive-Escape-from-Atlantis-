@@ -23,17 +23,16 @@ local currentHighlight = nil
 local selectedExplorer = nil
 local selectionHighlight = nil
 local selectedBoat = nil
-local availableBoatTiles = {}
 local boatTileHighlights = {}
 local floodHighlights = {}
 local isGamePhaseActive = false
 local isMyTurn = false
-local availableTiles = {} -- Таблиця доступних для переміщення тайлів
 local tileHighlights = {} -- Підсвічування тайлів
 local isMovementMode = false
 local isCreaturePhase = false
 local currentCreatureTurn = nil -- "Shark", "Kaiju", "Octopus"
 local selectedCreatureObj = nil -- Об'єкт вибраної істоти
+local gameState = "waiting" -- "waiting", "placement", "main_game", "flood", "creatures"
 
 -- ДОДАНО: Стан для підсвічування човна
 local currentHoveredBoat = nil
@@ -93,6 +92,77 @@ closeButton.TextSize = 12
 closeButton.Font = Enum.Font.GothamBold
 closeButton.Parent = selectionFrame
 
+-- ДОДАВЛЕНО: Кнопка пропуску ходу збоку екрану
+local skipTurnSideButton = Instance.new("ScreenGui")
+skipTurnSideButton.Name = "SkipTurnSideButton"
+skipTurnSideButton.ResetOnSpawn = false
+skipTurnSideButton.Enabled = false
+skipTurnSideButton.Parent = PlayerGui
+
+local skipButtonFrame = Instance.new("Frame")
+skipButtonFrame.Name = "SkipButtonFrame"
+skipButtonFrame.Size = UDim2.new(0, 200, 0, 60)
+skipButtonFrame.Position = UDim2.new(1, -220, 0.5, -30) -- Правый верхний угол
+skipButtonFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+skipButtonFrame.BackgroundTransparency = 0.3
+skipButtonFrame.BorderSizePixel = 2
+skipButtonFrame.BorderColor3 = Color3.fromRGB(255, 100, 100)
+skipButtonFrame.Visible = false
+skipButtonFrame.Parent = skipTurnSideButton
+
+local skipButtonCorner = Instance.new("UICorner")
+skipButtonCorner.CornerRadius = UDim.new(0, 12)
+skipButtonCorner.Parent = skipButtonFrame
+
+local skipButtonTitle = Instance.new("TextLabel")
+skipButtonTitle.Name = "SkipButtonTitle"
+skipButtonTitle.Size = UDim2.new(1, 0, 0, 30)
+skipButtonTitle.Position = UDim2.new(0, 0, 0, 0)
+skipButtonTitle.BackgroundTransparency = 1
+skipButtonTitle.TextColor3 = Color3.fromRGB(255, 100, 100)
+skipButtonTitle.Text = "⏭️ ПРОПУСТИТИ ХІД"
+skipButtonTitle.TextSize = 14
+skipButtonTitle.Font = Enum.Font.GothamBold
+skipButtonTitle.Parent = skipButtonFrame
+
+local skipButton = Instance.new("TextButton")
+skipButton.Name = "SkipButton"
+skipButton.Size = UDim2.new(0.8, 0, 0, 30)
+skipButton.Position = UDim2.new(0.1, 0, 0, 35)
+skipButton.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+skipButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+skipButton.Text = "НАДІСЛАТИ"
+skipButton.TextSize = 14
+skipButton.Font = Enum.Font.GothamBold
+skipButton.Parent = skipButtonFrame
+
+local skipButtonInnerCorner = Instance.new("UICorner")
+skipButtonInnerCorner.CornerRadius = UDim.new(0, 8)
+skipButtonInnerCorner.Parent = skipButton
+
+-- Функція для показу/приховування кнопки пропуску
+local function updateSkipButtonVisibility()
+	local shouldShow = isGamePhaseActive and isMyTurn and gameState == "main_game"
+
+	if skipTurnSideButton then
+		skipTurnSideButton.Enabled = shouldShow
+	end
+
+	if skipButtonFrame then
+		skipButtonFrame.Visible = shouldShow
+
+		-- Анімація появи
+		if shouldShow then
+			skipButtonFrame.Position = UDim2.new(1, -250, 0.5, -30) -- Починаємо за екраном
+			local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+			local tween = TweenService:Create(skipButtonFrame, tweenInfo, {
+				Position = UDim2.new(1, -220, 0.5, -30), -- Кінцева позиція
+			})
+			tween:Play()
+		end
+	end
+end
+
 local UICorner2 = Instance.new("UICorner")
 UICorner2.CornerRadius = UDim.new(0, 4)
 UICorner2.Parent = closeButton
@@ -151,24 +221,6 @@ local function updateSelectionUI(explorer)
 	closeButton.Position = UDim2.new(0.5, -40, 1, -30)
 end
 
--- Функція для отримання моделі дослідника (якщо клікнули на частину)
-local function getExplorerModel(clickedObject)
-	local current = clickedObject
-	while current and current ~= workspace do
-		-- Спочатку перевіряємо, чи це човен
-		if current:IsA("Model") and current:GetAttribute("IsBoat") == true then
-			return nil -- Ігноруємо кліки на човни
-		end
-
-		-- Потім шукаємо модель з атрибутом IsExplorer
-		if current:IsA("Model") and current:GetAttribute("IsExplorer") == true then
-			return current
-		end
-		current = current.Parent
-	end
-	return nil
-end
-
 -- Функція для отримання дослідника під курсором
 local function getExplorerUnderCursor()
 	local target = mouse.Target
@@ -215,7 +267,6 @@ local function getBoatUnderCursor()
 	while current and current ~= workspace do
 		if current:IsA("Model") and current:GetAttribute("IsBoat") == true then
 			local boatId = current:GetAttribute("BoatId")
-			local boatPlayer = current:GetAttribute("Player")
 			local q = current:GetAttribute("Q")
 			local r = current:GetAttribute("R")
 
@@ -516,6 +567,7 @@ local function clearBoatTileHighlights()
 	end
 	boatTileHighlights = {}
 end
+
 local function clearSelectionState()
 	print("🧹 Очищення стану вибору...")
 
@@ -535,8 +587,7 @@ local function clearSelectionState()
 		selectionHighlight = nil
 	end
 
-	-- ВИПРАВЛЕНО: Залишаємо підсвічування наведення
-	-- воно автоматично оновлюється в циклі Heartbeat
+	updateSkipButtonVisibility()
 
 	-- Скидаємо стан
 	isMovementMode = false
@@ -554,6 +605,128 @@ local function clearSelectionState()
 
 	print("✅ Стан вибору очищено (збережено підсвічування наведення)")
 end
+
+-- Обробник кліку по кнопці пропуску ходу
+skipButton.MouseButton1Click:Connect(function()
+	if not isGamePhaseActive or not isMyTurn then
+		print(
+			"❌ Не можна пропустити хід - не ваш хід або фаза не активна!"
+		)
+		return
+	end
+
+	-- Створюємо підтвердження
+	local confirmGui = Instance.new("ScreenGui")
+	confirmGui.Name = "SkipConfirmGui"
+	confirmGui.Parent = PlayerGui
+
+	local overlay = Instance.new("Frame")
+	overlay.Size = UDim2.new(1, 0, 1, 0)
+	overlay.Position = UDim2.new(0, 0, 0, 0)
+	overlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	overlay.BackgroundTransparency = 0.5
+	overlay.Parent = confirmGui
+
+	local confirmBox = Instance.new("Frame")
+	confirmBox.Size = UDim2.new(0, 350, 0, 200)
+	confirmBox.Position = UDim2.new(0.5, -175, 0.5, -100)
+	confirmBox.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+	confirmBox.BorderSizePixel = 0
+	confirmBox.Parent = confirmGui
+
+	local confirmCorner = Instance.new("UICorner")
+	confirmCorner.CornerRadius = UDim.new(0, 12)
+	confirmCorner.Parent = confirmBox
+
+	local title = Instance.new("TextLabel")
+	title.Size = UDim2.new(1, 0, 0, 50)
+	title.Position = UDim2.new(0, 0, 0, 0)
+	title.BackgroundTransparency = 1
+	title.TextColor3 = Color3.fromRGB(255, 100, 100)
+	title.Text = "⏭️ ПРОПУСК ХОДУ"
+	title.TextSize = 20
+	title.Font = Enum.Font.GothamBold
+	title.Parent = confirmBox
+
+	local message = Instance.new("TextLabel")
+	message.Size = UDim2.new(1, -20, 0, 80)
+	message.Position = UDim2.new(0, 10, 0, 60)
+	message.BackgroundTransparency = 1
+	message.TextColor3 = Color3.fromRGB(220, 220, 220)
+	message.TextSize = 14
+	message.TextWrapped = true
+	message.Text =
+		"Ви впевнені, що хочете пропустити хід?\n\n• Всі невикористані дії будуть втрачені\n• Переходимо до фази затоплення\n• Час на роздуми: 3 секунди"
+	message.Font = Enum.Font.Gotham
+	message.Parent = confirmBox
+
+	local buttonContainer = Instance.new("Frame")
+	buttonContainer.Size = UDim2.new(1, 0, 0, 50)
+	buttonContainer.Position = UDim2.new(0, 0, 1, -50)
+	buttonContainer.BackgroundTransparency = 1
+	buttonContainer.Parent = confirmBox
+
+	local yesButton = Instance.new("TextButton")
+	yesButton.Size = UDim2.new(0.4, 0, 0.8, 0)
+	yesButton.Position = UDim2.new(0.05, 0, 0.1, 0)
+	yesButton.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+	yesButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+	yesButton.Text = "ПРОПУСТИТИ"
+	yesButton.TextSize = 14
+	yesButton.Font = Enum.Font.GothamBold
+	yesButton.Parent = buttonContainer
+
+	local noButton = Instance.new("TextButton")
+	noButton.Size = UDim2.new(0.4, 0, 0.8, 0)
+	noButton.Position = UDim2.new(0.55, 0, 0.1, 0)
+	noButton.BackgroundColor3 = Color3.fromRGB(80, 80, 100)
+	noButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+	noButton.Text = "СКАСУВАТИ"
+	noButton.TextSize = 14
+	noButton.Font = Enum.Font.GothamBold
+	noButton.Parent = buttonContainer
+
+	local yesCorner = Instance.new("UICorner")
+	yesCorner.CornerRadius = UDim.new(0, 8)
+	yesCorner.Parent = yesButton
+
+	local noCorner = Instance.new("UICorner")
+	noCorner.CornerRadius = UDim.new(0, 8)
+	noCorner.Parent = noButton
+
+	-- Обробники кнопок
+	yesButton.MouseButton1Click:Connect(function()
+		-- Відправляємо запит на сервер
+		local SkipTurnEvent = GameEvents:WaitForChild("SkipTurnEvent")
+		SkipTurnEvent:FireServer()
+
+		-- Ховаємо кнопку пропуску
+		if skipTurnSideButton then
+			skipTurnSideButton.Enabled = false
+		end
+
+		-- Очищаємо стан вибору
+		clearSelectionState()
+
+		-- Ховаємо підтвердження
+		confirmGui:Destroy()
+
+		print("✅ Запит на пропуск ходу відправлено")
+	end)
+
+	noButton.MouseButton1Click:Connect(function()
+		-- Просто закриваємо підтвердження
+		confirmGui:Destroy()
+		print("❌ Пропуск ходу скасовано")
+	end)
+
+	-- Автоматичне закриття через 3 секунди
+	task.delay(3, function()
+		if confirmGui and confirmGui.Parent then
+			confirmGui:Destroy()
+		end
+	end)
+end)
 local function clearBoatSelection()
 	clearBoatTileHighlights()
 	selectedBoat = nil
@@ -799,33 +972,6 @@ local function getBoatInfo(boat)
 	)
 end
 
--- Функція для відображення інформації про човен
-local function showBoatInfo(boat)
-	if not boat then
-		return
-	end
-
-	-- Отримуємо інформацію про човен
-	local boatInfo = getBoatInfo(boat)
-
-	-- Перевіряємо, чи є обраний дослідник
-	local hasSelectedExplorer = selectedExplorer ~= nil
-
-	selectionFrame.Visible = true
-	selectionFrame.Size = UDim2.new(0, 320, 0, hasSelectedExplorer and 180 or 140)
-	selectionFrame.Position = UDim2.new(0.5, -160, 0.05, 0)
-	closeButton.Visible = true
-	closeButton.Position = UDim2.new(0.5, -40, 1, -30)
-end
-
-local function getTileUnderCursor()
-	local target = mouse.Target
-	if target and target:GetAttribute("IsLand") == true then
-		return target
-	end
-	return nil
-end
-
 -- Підсвічування дослідника при наведенні
 local function highlightExplorerOnHover(explorerModel, highlight)
 	if not explorerModel then
@@ -955,24 +1101,6 @@ local function highlightBoatMovementTiles(data)
 	print("📍 Показано доступні тайли для переміщення човна")
 end
 -- Підсвічування обраного дослідника
-
-local function createWaterEffect(tile)
-	if not tile:FindFirstChild("WaterEffect") then
-		local particleEmitter = Instance.new("ParticleEmitter")
-		particleEmitter.Name = "WaterEffect"
-		particleEmitter.Color = ColorSequence.new(Color3.fromRGB(100, 150, 255))
-		particleEmitter.Size = NumberSequence.new(0.3)
-		particleEmitter.Transparency = NumberSequence.new(0.5)
-		particleEmitter.Lifetime = NumberRange.new(0.5, 1)
-		particleEmitter.Rate = 20
-		particleEmitter.Speed = NumberRange.new(1, 2)
-		particleEmitter.VelocitySpread = 180
-		particleEmitter.Parent = tile
-
-		-- Видаляємо через 5 секунд після зникнення highlight
-		game:GetService("Debris"):AddItem(particleEmitter, 5)
-	end
-end
 
 local function highlightAvailableTiles(data)
 	clearTileHighlights()
@@ -1194,17 +1322,6 @@ local function highlightAvailableTiles(data)
 			safeWarning
 		)
 	end
-end
-
-local function isBoat(object)
-	local current = object
-	while current and current ~= workspace do
-		if current:IsA("Model") and current:GetAttribute("IsBoat") == true then
-			return true
-		end
-		current = current.Parent
-	end
-	return false
 end
 
 local function getBoatOnTile(q, r)
@@ -1665,8 +1782,6 @@ local function updateBoatPosition(boatId, q, r)
 	end
 
 	if targetTile and boatModel.PrimaryPart then
-		local tileTopY = targetTile.Position.Y + targetTile.Size.Y / 2
-		local boatBottomY = boatModel.PrimaryPart.Position.Y - boatModel.PrimaryPart.Size.Y / 2
 		local yOffset = 2.932
 
 		local targetPosition = targetTile.Position + Vector3.new(0, yOffset, 0)
@@ -1777,10 +1892,6 @@ floodFrame.BorderSizePixel = 0
 floodFrame.Visible = false
 floodFrame.Parent = floodScreenGui
 
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 10)
-UICorner.Parent = floodFrame
-
 local floodTitle = Instance.new("TextLabel")
 floodTitle.Name = "FloodTitle"
 floodTitle.Size = UDim2.new(1, 0, 0, 40)
@@ -1816,18 +1927,6 @@ confirmButton.TextSize = 16
 confirmButton.Font = Enum.Font.GothamBold
 confirmButton.Visible = false
 confirmButton.Parent = floodFrame
-
-local UICorner2 = Instance.new("UICorner")
-UICorner2.CornerRadius = UDim.new(0, 5)
-UICorner2.Parent = confirmButton
-
-local function showFloodPhaseUI(data)
-	floodScreenGui.Enabled = true
-	floodFrame.Visible = true
-
-	-- Оновлюємо інформацію в UI
-	-- ...
-end
 
 local function clearFloodHighlightsOnClient()
 	local map = workspace:WaitForChild("Map")
@@ -1899,7 +1998,7 @@ HighlightTilesEvent.OnClientEvent:Connect(function(data)
 		print("📍 Отримано доступні тайли для переміщення")
 		highlightAvailableTiles(data)
 
-		-- Додаємо підказку про човни
+		-- Д��даємо підказку про човни
 		--[[if infoLabel then
 			infoLabel.Text = infoLabel.Text
 				.. "\n\n🚤 Також можна клікнути на човен безпосередньо!"
@@ -1956,7 +2055,7 @@ HighlightTilesEvent.OnClientEvent:Connect(function(data)
 			end)
 		end
 	elseif data and data.type == "boat_movement" then
-		print("🚤 Отримано доступні тайли для переміщення човна")
+		print("🚤 Отрим��но доступні тайли для переміщення човна")
 		highlightBoatMovementTiles(data)
 
 		if infoLabel then
@@ -2063,11 +2162,6 @@ HighlightTilesEvent.OnClientEvent:Connect(function(data)
 	elseif data.type == "clear_flood_highlights" then
 		print("🧹 [КЛІЄНТ] Очищення підсвічувань затоплення")
 		clearFloodHighlightsOnClient()
-	elseif data.type == "tile_flooded" then
-		-- Після затоплення також очищаємо
-		task.delay(0.5, function() -- Трохи затримки для анімації
-			clearFloodHighlightsOnClient()
-		end)
 	end
 end)
 
@@ -2154,61 +2248,9 @@ local function clearAllHighlights()
 
 	isMovementMode = false
 end
-local function highlightFloodTiles(tiles, floodType)
-	-- Очищаємо попередні підсвічування
-	for _, highlight in ipairs(floodHighlights) do
-		if highlight and highlight.Parent then
-			highlight:Destroy()
-		end
-	end
-	floodHighlights = {}
-
-	-- Кольори для різних типів тайлів
-	local colors = {
-		Beach = Color3.fromRGB(255, 200, 0), -- Жовтий
-		Forest = Color3.fromRGB(0, 200, 100), -- Зелений
-		Mountain = Color3.fromRGB(150, 150, 150), -- Сірий
-	}
-
-	for _, tileData in ipairs(tiles) do
-		local tile = tileData.tileData and tileData.tileData.meshPart
-		if tile then
-			local highlight = Instance.new("Highlight")
-			highlight.Name = "FloodTileHighlight"
-
-			highlight.FillColor = colors[floodType] or Color3.fromRGB(255, 100, 100)
-			highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-			highlight.FillTransparency = 0.5
-			highlight.OutlineTransparency = 0
-			highlight.Parent = tile
-
-			-- Ефект пульсації
-			coroutine.wrap(function()
-				while highlight and highlight.Parent == tile do
-					local tweenInfo1 = TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-					local tween1 = TweenService:Create(highlight, tweenInfo1, { FillTransparency = 0.3 })
-					tween1:Play()
-					tween1.Completed:Wait()
-
-					if not highlight or highlight.Parent ~= tile then
-						break
-					end
-
-					local tweenInfo2 = TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-					local tween2 = TweenService:Create(highlight, tweenInfo2, { FillTransparency = 0.7 })
-					tween2:Play()
-					tween2.Completed:Wait()
-				end
-			end)()
-
-			table.insert(floodHighlights, highlight)
-		end
-	end
-end
 
 -- Обробник кліку на кнопку підтвердження
 confirmButton.MouseButton1Click:Connect(function()
-	local SelectFloodTileEvent = GameEvents:WaitForChild("SelectFloodTileEvent")
 	local ConfirmFloodEvent = GameEvents:WaitForChild("ConfirmFloodEvent")
 
 	-- Відправляємо підтвердження на сервер
@@ -2425,27 +2467,6 @@ local function getTileTypeAt(q, r)
 	end
 	return "unknown"
 end
-local function hasLandOnPath(startQ, startR, targetQ, targetR)
-	local dq = targetQ - startQ
-	local dr = targetR - startR
-	local distance = (math.abs(dq) + math.abs(dr) + math.abs(dq + dr)) / 2
-
-	if distance ~= 2 then
-		return false -- Тільки для дистанції 2
-	end
-
-	-- Знаходимо проміжні координати
-	local midQ = math.floor((startQ + targetQ) / 2 + 0.5)
-	local midR = math.floor((startR + targetR) / 2 + 0.5)
-
-	-- Перевіряємо тип проміжної ділянки
-	local midTileType = getTileTypeAt(midQ, midR)
-	if midTileType == "land" then
-		return true -- На шляху острів!
-	end
-
-	return false
-end
 local function highlightKaijuMoves(kaijuModel)
 	local cQ = kaijuModel:GetAttribute("Q")
 	local cR = kaijuModel:GetAttribute("R")
@@ -2455,38 +2476,6 @@ local function highlightKaijuMoves(kaijuModel)
 		local dx = q2 - q1
 		local dy = r2 - r1
 		return (math.abs(dx) + math.abs(dy) + math.abs(dx + dy)) / 2
-	end
-
-	-- Функция для нахождения промежуточного гекса
-	local function getIntermediateHex(startQ, startR, endQ, endR)
-		local distance = getHexDistance(startQ, startR, endQ, endR)
-
-		if distance == 2 then
-			local directions = {
-				{ 1, 0 },
-				{ 1, -1 },
-				{ 0, -1 },
-				{ -1, 0 },
-				{ -1, 1 },
-				{ 0, 1 },
-			}
-
-			-- Проверяем все возможные промежуточные точки
-			for _, dir1 in ipairs(directions) do
-				local midQ = startQ + dir1[1]
-				local midR = startR + dir1[2]
-
-				-- Проверяем, что это соседняя клетка от старта
-				if getHexDistance(startQ, startR, midQ, midR) == 1 then
-					-- Проверяем, что это также соседняя клетка от цели
-					if getHexDistance(midQ, midR, endQ, endR) == 1 then
-						return { q = midQ, r = midR }
-					end
-				end
-			end
-		end
-
-		return nil
 	end
 
 	-- Функция для проверки доступности промежуточных клеток
@@ -2516,7 +2505,6 @@ local function highlightKaijuMoves(kaijuModel)
 					-- Проверяем, что это также соседняя клетка от цели
 					if getHexDistance(midQ, midR, endQ, endR) == 1 then
 						-- Проверяем, что промежуточная клетка не активный вулкан
-						local tileType = getTileTypeAt(midQ, midR)
 						local isActiveVolcano = false
 
 						-- Проверяем, является ли тайл активным вулканом
@@ -3174,7 +3162,6 @@ local function updateExplorerPosition(explorer, q, r)
 
 		local explorerIndex = #explorersOnTile + 1 -- Наш дослідник буде наступним
 		local maxExplorersPerTile = 6
-		local spacing = 2 -- Відстань між дослідниками
 
 		if isWaterTile then
 			-- Позиціонування на воді зі зміщенням
@@ -3478,6 +3465,7 @@ UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
 		-- Обновляем информацию о ходе
 		local currentPlayerName = data.currentPlayer or ""
 		isMyTurn = (currentPlayerName == player.Name)
+		updateSkipButtonVisibility()
 
 		if isMyTurn then
 			closeButton.Visible = false
@@ -3795,7 +3783,7 @@ UpdateReadyStatusEvent.OnClientEvent:Connect(function(data)
 				local isWater = obj:GetAttribute("IsWater") or obj:GetAttribute("Placeboat")
 
 				if tileQ == data.q and tileR == data.r and isWater then
-					print("💧 [КЛІЄНТ] Активуємо водний тайл:", obj.Name)
+					print("💧 [КЛІЄНТ] А��тивуємо водний тайл:", obj.Name)
 
 					-- Відтворюємо анімацію появи води
 					obj.Transparency = 1 -- Спочатку невидимий
@@ -3847,6 +3835,8 @@ GameStartEvent.OnClientEvent:Connect(function(data)
 			data.remainingActions or 3,
 			data.maxActions or 3
 		)
+		gameState = "main_game"
+		updateSkipButtonVisibility()
 	elseif data.phase == "creature_phase_complete" then
 		print("✅ Фаза істот завершена - очищення UI")
 
@@ -3888,9 +3878,12 @@ GameStartEvent.OnClientEvent:Connect(function(data)
 			selectionHighlight:Destroy()
 			selectionHighlight = nil
 		end
+
 		clearTileHighlights()
 		currentHoveredExplorer = nil
 		selectedExplorer = nil
+		gameState = "main_game"
+		updateSkipButtonVisibility()
 	elseif data.phase == "placement" or data.phase == "placement_complete" or data.phase == "boats_placement" then
 		-- Фазы размещения - отключаем подсветку
 		isGamePhaseActive = false
@@ -3935,6 +3928,8 @@ GameStartEvent.OnClientEvent:Connect(function(data)
 
 		confirmButton.Visible = false
 		isGamePhaseActive = false
+		gameState = "flood"
+		updateSkipButtonVisibility()
 	elseif data.phase == "creature_phase_start" then
 		print("🎲 ФАЗА ІСТОТ АКТИВНА: " .. (data.rolledCreature or "Unknown"))
 
@@ -3989,6 +3984,8 @@ GameStartEvent.OnClientEvent:Connect(function(data)
 			creatureFrame.Size = UDim2.new(0, 300, 0, 150)
 			creatureFrame.Position = UDim2.new(0.5, -150, 0.1, 0)
 		end
+		gameState = "creatures"
+		updateSkipButtonVisibility()
 	elseif data.phase == "creature_phase_no_creatures" then
 		print("😴 Немає істот типу " .. data.rolledCreature)
 		creatureGui.Enabled = true

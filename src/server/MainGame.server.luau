@@ -1041,6 +1041,7 @@ function AtlantisGame:setupMovementSystem()
 	local selectExplorerEvent = self.networkManager:getSelectExplorerEvent()
 	local selectBoatEvent = self.networkManager:getSelectBoatEvent()
 	local moveBoatEvent = self.networkManager:getMoveBoatEvent()
+	local skipTurnEvent = self.networkManager:getSkipTurnEvent()
 
 	print("🔗 [СЕРВЕР] SelectExplorerEvent підключено:", selectExplorerEvent ~= nil)
 	print("🔗 [СЕРВЕР] MoveExplorerEvent підключено:", moveExplorerEvent ~= nil)
@@ -1106,6 +1107,14 @@ function AtlantisGame:setupMovementSystem()
 		end)
 	else
 		warn("❌ [СЕРВЕР] moveBoatEvent не знайдено!")
+	end
+	if skipTurnEvent then
+		skipTurnEvent.OnServerEvent:Connect(function(player)
+			print("⏭️ [СЕРВЕР] Отримано SkipTurnEvent від", player.Name)
+			self:skipTurn(player)
+		end)
+	else
+		warn("❌ [СЕРВЕР] skipTurnEvent не знайдено!")
 	end
 
 	print("✅ [СЕРВЕР] Система переміщення налаштована")
@@ -2052,7 +2061,7 @@ function AtlantisGame:onPlayerMoveBoat(player, boatId, q, r)
 		newName
 	)
 
-	-- Оновлюємо координати човна
+	-- Оновлюєм�� координати човна
 	boatModel:SetAttribute("Q", q)
 	boatModel:SetAttribute("R", r)
 
@@ -2156,6 +2165,42 @@ function AtlantisGame:onPlayerMoveBoat(player, boatId, q, r)
 		"✅ [СЕРВЕР] Човен #" .. tostring(boatId) .. " переміщений гравцем",
 		player.Name
 	)
+
+	return true
+end
+
+function AtlantisGame:skipTurn(player)
+	print("⏭️ [СЕРВЕР] Гравець пропускає хід:", player.Name)
+
+	if not self.isGameActive or self.gameState ~= "main_game" then
+		print("❌ [СЕРВЕР] Не можна пропустити хід - гра не активна!")
+		return false
+	end
+
+	-- Перевіряємо чи хід гравця
+	local currentPlayer = self.turnManager:getCurrentPlayer()
+	if player ~= currentPlayer then
+		print("❌ [СЕРВЕР] Не ваш хід! Зараз ходить:", currentPlayer.Name)
+		return false
+	end
+
+	-- Очищаємо виділення
+	self.networkManager:getHighlightTilesEvent():FireClient(player, {
+		type = "clear",
+	})
+
+	-- Очищаємо прапори входу у воду для всіх дослідників гравця
+	local playerData = self.players[player]
+	if playerData and playerData.explorers then
+		for _, explorer in ipairs(playerData.explorers) do
+			explorer.hasEnteredWaterThisTurn = false
+		end
+	end
+
+	print("✅ [СЕРВЕР] Хід пропущено. Починаємо фазу затоплення...")
+
+	-- Переходимо до фази затоплення
+	self:startFloodPhase(player)
 
 	return true
 end

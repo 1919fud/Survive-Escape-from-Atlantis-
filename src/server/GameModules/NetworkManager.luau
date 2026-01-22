@@ -65,6 +65,9 @@ function NetworkManager.new()
 	self.moveCreatureEvent.Name = "MoveCreatureEvent"
 	self.moveCreatureEvent.Parent = eventsFolder
 
+	self.skipTurnEvent = Instance.new("RemoteEvent")
+	self.skipTurnEvent.Name = "SkipTurnEvent"
+	self.skipTurnEvent.Parent = eventsFolder
 	return self
 end
 
@@ -119,6 +122,10 @@ end
 
 function NetworkManager:getMoveCreatureEvent()
 	return self.moveCreatureEvent
+end
+
+function NetworkManager:getSkipTurnEvent()
+	return self.skipTurnEvent
 end
 
 return NetworkManager
