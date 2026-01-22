@@ -2079,6 +2079,12 @@ function AtlantisGame:getAvailableBoatMovementTiles(boatId)
 		-- Перевіряємо, чи це водний тайл
 		local tile = self.mapManager:getTileAtPosition(nq, nr)
 		if tile and tile.isWater then
+			local isSafeTile = tile.tileType == "Safe"
+				or (tile.meshPart and tile.meshPart:GetAttribute("TileType") == "Safe")
+			if isSafeTile then
+				print(" ❌ Тайл Q=", nq, "R=", nr, "є безпечним - човен туди не може")
+				continue
+			end
 			-- Перевіряємо, чи немає там іншого човна
 			local hasOtherBoat = false
 			for _, obj in ipairs(workspace:GetChildren()) do
@@ -2095,7 +2101,20 @@ function AtlantisGame:getAvailableBoatMovementTiles(boatId)
 				end
 			end
 
-			if not hasOtherBoat then
+			-- ДОДАНО: Перевіряємо, чи немає на тайлі Кайдзю або Восьминоги
+			local hasCreature = self:hasCreatureOnTile(nq, nr)
+			if hasCreature then
+				print(
+					"❌ Тайл Q=",
+					nq,
+					"R=",
+					nr,
+					"зайнято істотою (Кайдзю/Восьминога)"
+				)
+				-- Можна додати логування типу істоти, якщо потрібно
+			end
+
+			if not hasOtherBoat and not hasCreature then
 				table.insert(availableTiles, {
 					q = nq,
 					r = nr,
@@ -2104,7 +2123,7 @@ function AtlantisGame:getAvailableBoatMovementTiles(boatId)
 				})
 				print(" ✅ Доступний тайл: Q=", nq, "R=", nr)
 			else
-				print(" ❌ Тайл зайнятий іншим човном: Q=", nq, "R=", nr)
+				print(" ❌ Тайл зайнятий іншим човном або істотою: Q=", nq, "R=", nr)
 			end
 		end
 	end
@@ -2157,6 +2176,11 @@ function AtlantisGame:onPlayerMoveBoat(player, boatId, q, r)
 		print("❌ [СЕРВЕР] Гра не активна або не основна фаза!")
 		return false
 	end
+	local hasCreature = self:hasCreatureOnTile(q, r)
+	if hasCreature then
+		print("❌ [СЕРВЕР] На цьому тайлі є істота (Кайдзю/Восьминога)!")
+		return false
+	end
 
 	-- Перевіряємо чи хід гравця
 	if player ~= self.turnManager:getCurrentPlayer() then
@@ -2189,6 +2213,18 @@ function AtlantisGame:onPlayerMoveBoat(player, boatId, q, r)
 	if not self.turnManager:useAction(player) then
 		print("❌ [СЕРВЕР] Недостатньо дій!")
 		return false
+	end
+	local tile = self.mapManager:getTileAtPosition(q, r)
+	if tile then
+		local isSafeTile = tile.tileType == "Safe"
+			or (tile.meshPart and tile.meshPart:GetAttribute("TileType") == "Safe")
+
+		if isSafeTile then
+			print(
+				"❌ [СЕРВЕР] Не можна переміщати човен на безпечний тайл!"
+			)
+			return false
+		end
 	end
 
 	-- Знаходимо човен у workspace
