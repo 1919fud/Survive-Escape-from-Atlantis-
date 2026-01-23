@@ -20,7 +20,7 @@ function CreaturePhase:start(player, mainGame)
 	end
 	self.mainGame = mainGame
 	self.networkManager = mainGame.networkManager
-	self.currentPlayer = player -- ВАЖНО: устанавливаем текущего игрока!
+	self.currentPlayer = player -- Устанавливаем текущего игрока!
 	self.player = player
 
 	if not player then
@@ -67,7 +67,7 @@ function CreaturePhase:start(player, mainGame)
 
 		task.wait(3)
 		self:endPhase()
-		return -- ВАЖНО: выходим из функции
+		return -- Выходим из функции
 	end
 
 	print(
@@ -138,21 +138,10 @@ function CreaturePhase:start(player, mainGame)
 		print("* Завершуємо фазу істот через 3 секунди...")
 		task.wait(3)
 		self:endPhase()
-		return -- ВАЖНО: выходим из функции
+		return --  выходим из функции
 	end
 
 	print("* Очікуємо хід гравця істотою... (Знайдено: " .. creaturesCount .. ")")
-
-	-- ОБНОВЛЕНО: Если есть существа с ходами, отправляем клиентам уведомление
-	--[[self.networkManager:getGameStartEvent():FireAllClients({
-		phase = "creature_phase_start",
-		rolledCreature = self.rolledCreature,
-		currentPlayer = player.Name,
-		creaturesCount = creaturesCount,
-		message = "Оберіть істоту типу " .. self.rolledCreature .. " для переміщення",
-		creatureName = self:getCreatureNameUa(self.rolledCreature),
-	})]]
-	--
 end
 function CreaturePhase:doesCreatureHaveValidMoves(creature)
 	local creatureType = creature:GetAttribute("CreatureType")
@@ -816,7 +805,7 @@ function CreaturePhase:moveShark(shark, q, r)
 		return false
 	end
 
-	-- ДОДАНО: Проверяем доступные пути (особенно для дистанции 2)
+	--  Проверяем доступные пути (особенно для дистанции 2)
 	local isValidMove = false
 
 	if distance == 1 then
@@ -1051,7 +1040,7 @@ function CreaturePhase:moveKaiju(kaiju, q, r)
 		self:pushCreatureToNeighbor(otherKaiju, q, r)
 	end
 
-	-- ДОДАНО: Проверяем доступные пути (особенно для дистанции 2)
+	--  Проверяем доступные пути (особенно для дистанции 2)
 	local isValidMove = false
 
 	if distance == 1 then
@@ -1697,7 +1686,7 @@ function CreaturePhase:endPhase()
 
 	self.isActive = false
 
-	-- ВАЖНО: Устанавливаем игру в активное состояние
+	--  Устанавливаем игру в активное состояние
 	if self.mainGame then
 		self.mainGame.isGameActive = true
 		self.mainGame.gameState = "main_game"

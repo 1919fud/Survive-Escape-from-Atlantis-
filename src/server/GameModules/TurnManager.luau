@@ -88,7 +88,7 @@ function TurnManager:nextTurn()
 	self.playerActionsUsed[nextPlayer] = 0
 	print("🎮 Перехід ходу: ", currentPlayer.Name, "→", nextPlayer.Name)
 
-	-- [ВИПРАВЛЕННЯ] Викликаємо MainGame для старту ходу
+	--  Викликаємо MainGame для старту ходу
 	if self.mainGame then
 		print("🔄 [TurnManager] Ініціалізація ходу через MainGame для: " .. nextPlayer.Name)
 		-- Ця функція скине дії візуально і відправить подію клієнту

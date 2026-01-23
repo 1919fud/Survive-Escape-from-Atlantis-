@@ -20,7 +20,7 @@ function AtlantisGame.new()
 	self.readyPlayers = {}
 	self.waitingForReady = true
 
-	-- ДОБАВЛЕНО: Система размещения
+	-- Система размещения
 	self.placementPhase = PlacementPhase.new()
 	self.gameState = "ready" -- ready, placement, main_game
 	self.savedExplorers = {}
@@ -82,7 +82,7 @@ function AtlantisGame:setupPlayerHandlers()
 	print("✅ Обработчики игроков настроены")
 end
 
--- ДОБАВЛЕНО: Система размещения исследователей
+-- Система размещения исследователей
 function AtlantisGame:setupExplorerPlacement()
 	print("🎯 Настройка системы размещения исследователей...")
 
@@ -121,7 +121,6 @@ function AtlantisGame:setupMainGameHandlers()
 	else
 		warn("❌ Не вдалося знайти MoveCreatureEvent!")
 	end
-	-- ========================
 
 	print("✅ Основні ігрові обробники налаштовані")
 
@@ -166,7 +165,6 @@ function AtlantisGame:removeBoat(boatObj)
 			exp:SetAttribute("OnBoat", false)
 			exp:SetAttribute("BoatId", nil)
 			exp:SetAttribute("IsOnWater", true) -- Вони падають у воду
-			-- Можна додати логіку, що вони стають "плавцями"
 		end
 	end
 
@@ -264,7 +262,7 @@ function AtlantisGame:removeExplorer(explorerId, playerName)
 end
 
 function AtlantisGame:setupCreaturePhaseHandlers()
-	local MoveCreatureEvent = self.networkManager:getMoveCreatureEvent() -- Треба створити в NetworkManager
+	local MoveCreatureEvent = self.networkManager:getMoveCreatureEvent()
 	MoveCreatureEvent.OnServerEvent:Connect(function(player, creatureId, q, r)
 		self.creaturePhase:handleCreatureMove(player, creatureId, q, r)
 	end)
@@ -357,7 +355,7 @@ function AtlantisGame:getAvailableMovementTiles(explorer, maxSteps)
 						"є АКТИВНИМ вулканом - пропускаємо"
 					)
 				else
-					-- НОВА ПЕРЕВІРКА: Чи немає на цьому тайлі істоти (акули, кайдзю, восьминога)
+					-- Чи немає на цьому тайлі істоти (акули, кайдзю, восьминога)
 					local hasCreature = self:hasCreatureOnTile(current.q, current.r)
 
 					if hasCreature then
@@ -373,7 +371,7 @@ function AtlantisGame:getAvailableMovementTiles(explorer, maxSteps)
 						local isWaterTile = tile.isWater or tile.type == "Water"
 						local isLandTile = not isWaterTile
 
-						-- ДОДАНО: Перевірка, чи це човен і чи він заповнений
+						-- Перевірка, чи це човен і чи він заповнений
 						local isBoatTile = self:hasBoatOnTile(current.q, current.r)
 						local canEnterTile = true
 						local boatId = nil
@@ -443,7 +441,7 @@ function AtlantisGame:getAvailableMovementTiles(explorer, maxSteps)
 						local neighborTile = self.mapManager:getTileAtPosition(nq, nr)
 
 						if neighborTile then
-							-- ПЕРЕВІРКА: Чи не є сусід АКТИВНИМ вулканом
+							-- Чи не є сусід АКТИВНИМ вулканом
 							if neighborTile.isVolcanoActive and neighborTile.isBlocked then
 								print(
 									"🚫 Сусідній тайл Q=",
@@ -510,7 +508,7 @@ function AtlantisGame:getAvailableMovementTiles(explorer, maxSteps)
 				tileData.q,
 				"R=",
 				tileData.r,
-				"(заблоковано - не додано до доступних)"
+				"(заблоковано - не  до доступних)"
 			)
 		elseif tileData.isVolcano then
 			volcanoCount = volcanoCount + 1
@@ -573,7 +571,7 @@ function AtlantisGame:hasCreatureOnTile(q, r)
 	return false
 end
 
--- ДОБАВЛЕНО: Обработка размещения исследователя
+--  Обработка размещения исследователя
 function AtlantisGame:onPlayerPlaceExplorer(player, treasureValue, q, r)
 	if not self.isGameActive then
 		warn("❌ Игра еще не началась!")
@@ -1357,7 +1355,7 @@ function AtlantisGame:setupMovementSystem()
 		warn("❌ [СЕРВЕР] selectBoatEvent не знайдено!")
 	end
 
-	-- Обробка руху човна (ДОДАНО)
+	-- Обробка руху човна ()
 	if moveBoatEvent then
 		moveBoatEvent.OnServerEvent:Connect(function(player, boatId, q, r)
 			print(
@@ -1629,7 +1627,7 @@ function AtlantisGame:getExplorersOnBoat(q, r)
 	return explorers
 end
 
--- ДОДАНО: Функція для отримання списку зайнятих місць на човні
+--  Функція для отримання списку зайнятих місць на човні
 function AtlantisGame:getOccupiedBoatPlaces(boatId)
 	local occupiedPlaces = {}
 
@@ -1650,7 +1648,7 @@ function AtlantisGame:getOccupiedBoatPlaces(boatId)
 	return occupiedPlaces
 end
 
--- ДОДАНО: Функція для знаходження вільного місця на човні
+--  Функція для знаходження вільного місця на човні
 function AtlantisGame:findFreeBoatPlace(boatId)
 	if not boatId then
 		return nil
@@ -1849,8 +1847,8 @@ function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
 			q = q,
 			r = r,
 			treasureValue = explorer.treasureValue,
-			moveCost = moveCost, -- ДОБАВЛЕНО: отправляем стоимость
-			remainingActions = self.turnManager:getRemainingActions(player), -- ДОБАВЛЕНО
+			moveCost = moveCost, --  отправляем стоимость
+			remainingActions = self.turnManager:getRemainingActions(player), --
 		})
 		self.networkManager:getUpdateReadyStatusEvent():FireAllClients({
 			type = "ExplorerMoved",
@@ -1859,8 +1857,8 @@ function AtlantisGame:onPlayerMoveExplorer(player, explorerId, q, r)
 			q = q,
 			r = r,
 			treasureValue = explorer.treasureValue,
-			moveCost = moveCost, -- ДОБАВЛЕНО: отправляем стоимость
-			remainingActions = self.turnManager:getRemainingActions(player), -- ДОБАВЛЕНО
+			moveCost = moveCost, --  отправляем стоимость
+			remainingActions = self.turnManager:getRemainingActions(player), --
 		})
 
 		-- Проверяем, закончились ли действия
@@ -2018,7 +2016,7 @@ function AtlantisGame:saveExplorerToSafeTile(explorer, player, q, r)
 			local tween = tweenService:Create(obj.PrimaryPart, tweenInfo, { Position = targetPosition })
 			tween:Play()
 
-			-- Удаляем после анимац��и
+			-- Удаляем после анимации
 			game:GetService("Debris"):AddItem(obj, 3)
 
 			print("✨ Визуальный эффект сохранения применен")
@@ -2033,7 +2031,7 @@ function AtlantisGame:saveExplorerToSafeTile(explorer, player, q, r)
 		"✅ Исследователь успешно сохранен. Всего сохранено:",
 		#self.savedExplorers
 	)
-	print("🎯 ��сталось действий у игрока:", self.turnManager:getRemainingActions(player))
+	print("🎯 Осталось действий у игрока:", self.turnManager:getRemainingActions(player))
 end
 
 -- Функция проверки условий победы
@@ -2042,7 +2040,7 @@ function AtlantisGame:checkWinCondition(player)
 	local playerName = player.Name
 	local totalTreasureValue = 0
 
-	-- Рахуємо скільки дослідників збережено та їхню вартість скарбів
+	-- Рахуємо скільки дослідників збережено та їхню вартість скарбі��
 	for _, saved in ipairs(self.savedExplorers) do
 		if saved.playerName == playerName then
 			savedCount = savedCount + 1
@@ -2105,7 +2103,7 @@ function AtlantisGame:getBoatController(boatId)
 	local playerCounts = {}
 	local maxCount = 0
 
-	-- Рахуємо кількість дослідників ��ожного гравця на човні
+	-- Рахуємо кількість дослідників кожного гравця на човні
 	for _, playerData in pairs(self.players) do
 		if playerData.explorers then
 			for _, explorer in ipairs(playerData.explorers) do
@@ -2277,7 +2275,7 @@ function AtlantisGame:getAvailableBoatMovementTiles(boatId)
 				end
 			end
 
-			-- ДОДАНО: Перевіряємо, чи немає на тайлі Кайдзю або Восьминоги
+			--  Перевіряємо, чи немає на тайлі Кайдзю або Восьминоги
 			local hasCreature = self:hasCreatureOnTile(nq, nr)
 			if hasCreature then
 				print(
@@ -2324,7 +2322,7 @@ function AtlantisGame:onPlayerSelectBoat(player, boatId)
 		return false
 	end
 
-	-- ВИПРАВЛЕНО: Використовуємо нову функцію перевірки
+	--  Використовуємо нову функцію перевірки
 	if not self:canPlayerControlBoat(player, boatId) then
 		print("❌ [СЕРВЕР] Гравець не може контролювати цей човен!")
 		return false
@@ -2370,7 +2368,7 @@ function AtlantisGame:onPlayerMoveBoat(player, boatId, q, r)
 		return false
 	end
 
-	-- Перевіряємо доступність тайл��
+	-- Перевіряємо доступність тайлу
 	local availableTiles = self:getAvailableBoatMovementTiles(boatId)
 	local isTileAvailable = false
 	for _, tile in ipairs(availableTiles) do
@@ -2415,7 +2413,7 @@ function AtlantisGame:onPlayerMoveBoat(player, boatId, q, r)
 	end
 
 	if not boatModel then
-		print("❌ [СЕРВЕР] Човен не знайд��ний у workspace!")
+		print("❌ [СЕРВЕР] Човен не знайдено у workspace!")
 		return false
 	end
 
@@ -2423,14 +2421,9 @@ function AtlantisGame:onPlayerMoveBoat(player, boatId, q, r)
 	local oldName = boatModel.Name
 	local newName = "Boat_" .. tostring(boatId) .. "_" .. player.Name .. "_" .. q .. "_" .. r
 	boatModel.Name = newName
-	print(
-		"🔄 [����������ВЕР] Оновлено назву човна: ",
-		oldName,
-		"→",
-		newName
-	)
+	print("🔄 [СЕРВЕР] Оновлено назву човна: ", oldName, "→", newName)
 
-	-- Оновлюєм�� координати човна
+	-- Оновлюємо координати човна
 	boatModel:SetAttribute("Q", q)
 	boatModel:SetAttribute("R", r)
 

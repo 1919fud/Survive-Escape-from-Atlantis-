@@ -34,7 +34,7 @@ local currentCreatureTurn = nil -- "Shark", "Kaiju", "Octopus"
 local selectedCreatureObj = nil -- Об'єкт вибраної істоти
 local gameState = "waiting" -- "waiting", "placement", "main_game", "flood", "creatures"
 
--- ДОДАНО: Стан для підсвічування човна
+--  Стан для підсвічування човна
 local currentHoveredBoat = nil
 local boatHighlight = nil
 
@@ -256,7 +256,7 @@ local function getExplorerUnderCursor()
 	return nil
 end
 
--- ДОДАНО: Функція для отримання човна під курсором
+--  Функція для отримання човна під курсором
 local function getBoatUnderCursor()
 	local target = mouse.Target
 	if not target then
@@ -305,7 +305,7 @@ local function getBoatControllerClient(boat)
 	for _, obj in ipairs(workspace:GetChildren()) do
 		if obj:GetAttribute("IsExplorer") then
 			local objBoatId = obj:GetAttribute("BoatId")
-			-- ВИПРАВЛЕНО: перетворюємо на строку для порівняння
+			--  перетворюємо на строку для порівняння
 			if tostring(objBoatId) == tostring(boatId) then
 				local playerName = obj:GetAttribute("Player")
 				playerCounts[playerName] = (playerCounts[playerName] or 0) + 1
@@ -350,7 +350,7 @@ local function highlightBoatOnHover(boatModel, highlight)
 		return
 	end
 
-	-- ВИПРАВЛЕНО: Дозволяємо підсвічування човна навіть якщо є обраний дослідник
+	--  Дозволяємо підсвічування човна навіть якщо є обраний дослідник
 	-- Але змінюємо колір, щоб показати, що це не для переміщення
 
 	local boatId = boatModel:GetAttribute("BoatId")
@@ -499,14 +499,14 @@ local function highlightSelectedExplorer(explorerModel, highlight)
 			selectionHighlight = nil
 		end
 
-		-- ВАЖЛИВО: також прибираємо підсвічування наведення з цього дослідника
+		--  також прибираємо підсвічування наведення з цього дослідника
 		if currentHighlight and currentHighlight.Parent == explorerModel then
 			currentHighlight:Destroy()
 			currentHighlight = nil
 		end
 
 		selectedExplorer = nil
-		currentHoveredExplorer = nil -- ДОДАНО: скидаємо і наведення
+		currentHoveredExplorer = nil --  скидаємо і наведення
 		updateSelectionUI(nil)
 		print("🔴 Підсвічування вибраного дослідника вимкнено")
 		return
@@ -581,7 +581,7 @@ local function clearSelectionState()
 	end
 	clearBoatTileHighlights()
 
-	-- ВИПРАВЛЕНО: видаляємо ТІЛЬКИ виділення обраного дослідника
+	--  видаляємо ТІЛЬКИ виділення обраного дослідника
 	if selectionHighlight then
 		selectionHighlight:Destroy()
 		selectionHighlight = nil
@@ -918,13 +918,13 @@ local function onBoatClick(boat)
 		print("🚤 Обрано човен #", boatId, "під контролем гравця:", player.Name)
 	end
 end
--- ДОДАНО: Функція для отримання інформації про човен для UI
+--  Функція для отримання інформації про човен для UI
 local function getBoatInfo(boat)
 	if not boat then
 		return "Немає інформації"
 	end
 
-	-- ДОДАНО: Перетворюємо атрибути на числа
+	--  Перетворюємо атрибути на числа
 	local boatId = boat:GetAttribute("BoatId")
 	local boatIdNum = tonumber(boatId) or 0 -- Перетворюємо на число або 0 за замовчуванням
 
@@ -1457,7 +1457,7 @@ local function moveExplorerToTile(tileData)
 
 	local explorerId = selectedExplorer:GetAttribute("ExplorerId")
 
-	-- ДОДАНО: Перевіряємо чи є човен на цьому тайлі
+	--  Перевіряємо чи є човен на цьому тайлі
 	local boat = getBoatOnTile(tileData.q, tileData.r)
 	local isBoatTile = boat ~= nil
 
@@ -1794,7 +1794,7 @@ local function updateBoatPosition(boatId, q, r)
 				.. " переміщений на нову позицію"
 		)
 
-		-- ВИПРАВЛЕНО: Оновлюємо дослідників на човні, зберігаючи їхні місця
+		--  Оновлюємо дослідників на човні, зберігаючи їхні місця
 		updateExplorersOnBoatPosition(boatId, q, r)
 	else
 		print("❌ [КЛІЄНТ] Не знайдено водний тайл для позиціонування")
@@ -3428,7 +3428,7 @@ local function updateExplorerPosition(explorer, q, r)
 	local map = workspace:WaitForChild("Map")
 	local targetTile = nil
 	local isWaterTile = false
-	local isBoatTile = false -- ДОДАНО: Оголошуємо змінну тут
+	local isBoatTile = false --  Оголошуємо змінну тут
 
 	-- Спочатку шукаємо тайл острова
 	for _, obj in ipairs(map:GetDescendants()) do
@@ -3482,7 +3482,7 @@ local function updateExplorerPosition(explorer, q, r)
 		end
 	end
 
-	-- ДОДАНО: Перевіряємо, чи дослідник був на човні
+	--  Перевіряємо, чи дослідник був на човні
 	local wasOnBoat = explorer:GetAttribute("OnBoat") == true
 	local oldBoatId = explorer:GetAttribute("BoatId")
 
@@ -3589,7 +3589,7 @@ local function updateExplorerPosition(explorer, q, r)
 			end
 		end
 
-		-- ВИПРАВЛЕНО: Скидаємо атрибути човна якщо це НЕ ����овен
+		--  Скидаємо атрибути човна якщо це НЕ ����овен
 		if wasOnBoat and not isBoatTile then
 			explorer:SetAttribute("OnBoat", false)
 			explorer:SetAttribute("BoatId", nil)

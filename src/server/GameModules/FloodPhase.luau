@@ -26,7 +26,7 @@ function FloodPhase.new()
 		},
 		kaijus = {
 			count = 0,
-			maxCount = 2, -- Максимум: 3 на пляжах + 2 у лісах
+			maxCount = 2, -- Максимум :
 			beachTiles = 0,
 			forestTiles = 0,
 			placedOn = {},
@@ -432,7 +432,7 @@ function FloodPhase:moveExplorersFromTile(q, r)
 	end
 
 	if #explorersToMove > 0 then
-		-- НОВИЙ ПІДХІД: залишаємо дослідників на ЦИХ Ж координатах, бо там буде вода
+		-- Залишаємо дослідників на ЦИХ Ж координатах, бо там буде вода
 		print(
 			"🌊 Затоплюємо тайл - дослідники залишаються на цих координатах (тепер це буде вода)"
 		)
@@ -440,8 +440,7 @@ function FloodPhase:moveExplorersFromTile(q, r)
 		for _, data in ipairs(explorersToMove) do
 			local explorer = data.explorer
 
-			-- ВАЖЛИВО: координати НЕ міняємо! Дослідник залишається на Q, R
-			-- Але оскільки острів затоплено, в тепер він буде на воді
+			-- Координати НЕ міняємо! Дослідник залишається на Q, R
 
 			explorer.isOnBoat = false
 			explorer.hasEnteredWaterThisTurn = true -- Вони тепер у воді!
@@ -463,11 +462,11 @@ function FloodPhase:moveExplorersFromTile(q, r)
 				playerName = explorer.player.Name,
 				fromQ = q,
 				fromR = r,
-				toQ = q, -- ТІ Ж КООРДИНАТИ!
-				toR = r, -- ТІ Ж КООРДИНАТИ!
+				toQ = q,
+				toR = r,
 				message = "Дослідник опинився у воді через затоплення острова",
 				isNowOnWater = true,
-				sameCoordinates = true, -- Додатковий прапорець
+				sameCoordinates = true,
 			})
 		end
 	else
@@ -505,7 +504,7 @@ function FloodPhase:createFloodEffectAtPosition(q, r)
 	-- Створюємо тимчасову частинку для ефекту
 	local tempPart = Instance.new("Part")
 	tempPart.Size = Vector3.new(1, 1, 1)
-	tempPart.Position = position + Vector3.new(0, 5, 0) -- Трохи вище
+	tempPart.Position = position + Vector3.new(0, 5, 0)
 	tempPart.Anchored = true
 	tempPart.CanCollide = false
 	tempPart.Transparency = 1
@@ -530,7 +529,7 @@ function FloodPhase:floodTile(tileInfo)
 
 		print("🌊 Затоплюємо тайл:", originalType, "Q=", originalQ, "R=", originalR)
 
-		-- ПЕРЕВІРКА: якщо це вулкан, не повинно бути тут (вони обробляються в confirmFlood)
+		-- Якщо це вулкан, не повинно бути тут (вони обробляються в confirmFlood)
 		local hasVolcano = specialEffect == "volcano"
 		if hasVolcano then
 			warn("⚠️ Спроба затопити вулкан! Це не повинно статися.")
@@ -698,7 +697,6 @@ function FloodPhase:spawnShark(tileType, q, r, coordKey)
 		sharkData.count = sharkData.count + 1
 		sharkData.placedOn[coordKey] = true
 
-		-- Тут код для створення акули
 		self:createSharkVisual(q, r)
 	else
 		-- Переміщаємо існуючу акулу
@@ -1014,7 +1012,6 @@ function FloodPhase:spawnKaiju(tileType, q, r, coordKey)
 		kaijuData.count = kaijuData.count + 1
 		kaijuData.placedOn[coordKey] = true
 
-		-- Тут код для створення кайджю
 		self:createKaijuVisual(q, r)
 	else
 		-- Переміщаємо існуючого кайджю
@@ -1205,7 +1202,6 @@ function FloodPhase:spawnBoat(tileType, q, r, coordKey)
 
 		local currentPlayer = self.currentFloodPlayer
 
-		-- Тут код для створення човна
 		if currentPlayer then
 			-- Використовуємо метод PlacementPhase
 			local boat = self.mainGame.placementPhase:createBoatVisual(nil, q, r)
@@ -1331,13 +1327,13 @@ function FloodPhase:removeAllElementsFromTile(q, r)
 		boats = 0,
 	}
 
-	-- 1. Спочатку видаляємо дослідників на цьому тайлі (ВИПРАВЛЕНО)
+	-- 1. Спочатку видаляємо дослідників на цьому тайлі
 	for _, obj in ipairs(workspace:GetChildren()) do
 		if obj:GetAttribute("IsExplorer") then
 			local objQ = obj:GetAttribute("Q")
 			local objR = obj:GetAttribute("R")
 
-			-- ВИПРАВЛЕННЯ: Уважно порівнюємо значення
+			-- Уважно порівнюємо значення
 			if objQ ~= nil and objR ~= nil then
 				local targetQ = tonumber(q)
 				local targetR = tonumber(r)
@@ -1396,7 +1392,7 @@ function FloodPhase:removeAllElementsFromTile(q, r)
 		end
 	end
 
-	-- 2. Видаляємо істот (акули, кайджю)
+	-- 2. Видаляємо істот (акули, кайджю, восьминоги)
 	local creatures = {
 		{ type = "IsShark", name = "sharks" },
 		{ type = "IsKaiju", name = "kaijus" },
@@ -2216,8 +2212,6 @@ function FloodPhase:finish(player)
 	self.networkManager:getHighlightTilesEvent():FireAllClients({
 		type = "clear_flood_highlights",
 	})
-
-	-- ЗАПОМНИТЕ: НЕ переключаем ход здесь!
 	-- Фаза затопления завершена, но ход игрока ЕЩЕ НЕ ЗАВЕРШЕН
 
 	-- Начинаем фазу существ
@@ -2309,7 +2303,7 @@ function FloodPhase:endPhase()
 			print("🛑 TurnManager зупинено після завершення гри")
 		end
 
-		-- ВИПРАВЛЕННЯ: Викликаємо функцію завершення гри через MainGame
+		-- Викликаємо функцію завершення гри через MainGame
 		-- для правильного підрахунку всіх збережених дослідників
 		if self.mainGame and self.mainGame.endGameNoExplorers then
 			print("📊 Передача управління завершення гри до MainGame...")

@@ -345,7 +345,7 @@ function MapManager:getTileAtPosition(q, r)
 			isVolcano = false,
 			isVolcanoActive = false,
 			isBlocked = false,
-			isSafe = false, -- ДОБАВЛЕНО
+			isSafe = false,
 		}
 
 		-- Проверяем водный тайл на активный вулкан

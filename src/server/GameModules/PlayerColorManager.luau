@@ -9,27 +9,27 @@ function PlayerColorManager.new()
 	self.availableColors = {
 		{
 			name = "Червоний",
-			color = Color3.fromRGB(220, 20, 60), -- Красный
+			color = Color3.fromRGB(220, 20, 60),
 			brickColor = BrickColor.new("Bright red"),
 		},
 		{
 			name = "Синій",
-			color = Color3.fromRGB(30, 144, 255), -- Синий
+			color = Color3.fromRGB(30, 144, 255),
 			brickColor = BrickColor.new("Bright blue"),
 		},
 		{
 			name = "Зелений",
-			color = Color3.fromRGB(50, 205, 50), -- Зеленый
+			color = Color3.fromRGB(50, 205, 50),
 			brickColor = BrickColor.new("Bright green"),
 		},
 		{
 			name = "Жовтий",
-			color = Color3.fromRGB(255, 215, 0), -- Желтый
+			color = Color3.fromRGB(255, 215, 0),
 			brickColor = BrickColor.new("Bright yellow"),
 		},
 		{
 			name = "Фіолетовий",
-			color = Color3.fromRGB(186, 85, 211), -- Фиолетовый
+			color = Color3.fromRGB(186, 85, 211),
 			brickColor = BrickColor.new("Bright violet"),
 		},
 	}

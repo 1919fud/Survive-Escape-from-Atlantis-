@@ -146,7 +146,7 @@ function PlacementPhase:handlePlaceExplorer(player, treasureValue, q, r)
 		return false
 	end
 
-	-- НОВОЕ: Проверяем лимит размещения - МАКСИМУМ 1 исследователь на тайле во время фазы размещения
+	-- Проверяем лимит размещения - МАКСИМУМ 1 исследователь на тайле во время фазы размещения
 	local explorersOnTile = self:countExplorersOnTile(q, r)
 	if explorersOnTile >= 1 then
 		warn(
@@ -680,7 +680,7 @@ function PlacementPhase:createBoatVisual(player, q, r)
 		return
 	end
 
-	-- ВАЖЛИВО: Генеруємо унікальний ID для човна
+	--  Генеруємо унікальний ID для човна
 	local boatId = 1 -- Завжди починаємо з 1
 
 	-- Рахуємо скільки човнів вже створено
@@ -723,7 +723,7 @@ function PlacementPhase:createBoatVisual(player, q, r)
 	-- Создаем човен
 	local boat = self.boatTemplate:Clone()
 	local playerName = player and player.Name or "Special"
-	-- ВАЖЛИВО: Правильне ім'я з ID
+	--  Правильне ім'я з ID
 	boat.Name = "Boat_" .. boatId .. "_" .. playerName .. "_" .. q .. "_" .. r
 
 	local primaryPart = boat.PrimaryPart
@@ -753,7 +753,7 @@ function PlacementPhase:createBoatVisual(player, q, r)
 	local rotatedCFrame = (targetTile.CFrame + Vector3.new(0, yOffset, 0)) * CFrame.Angles(math.rad(180), 0, 0)
 	boat:PivotTo(rotatedCFrame)
 
-	-- ВАЖЛИВО: Встановлюємо всі атрибути
+	--  Встановлюємо всі атрибути
 	boat:SetAttribute("BoatId", boatId)
 	boat:SetAttribute("IsBoat", true)
 	boat:SetAttribute("Player", playerName)

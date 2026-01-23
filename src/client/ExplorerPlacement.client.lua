@@ -756,7 +756,7 @@ local function createBoatVisual(playerName, q, r, boatIdFromServer)
 		return
 	end
 
-	-- ВАЖЛИВО: Знаходимо унікальний ID
+	-- Знаходимо унікальний ID
 	local boatId = boatIdFromServer
 	if not boatId then
 		-- Рахуємо скільки човнів вже створено
